@@ -116,7 +116,7 @@ def carregar_risco(ano: str, cand: int, assinatura: tuple) -> dict:
     for c in d.select_dtypes("float64").columns:
         d[c] = d[c].astype("float32")
     return {"mr": d.reset_index(drop=True).copy(), "n_ufs_log": int(d["uf"].nunique()),
-            "n_ufs": 26 + 1, "tem_manual": "z_manual" in d}
+            "n_ufs": 27, "tem_manual": "z_manual" in d}
 
 
 @st.cache_resource(show_spinner="Preparando o fluxo de votos…", max_entries=2)
@@ -1413,8 +1413,8 @@ with aba_risco:
                    "Os dados desta aba são um resultado pré-calculado (exterior fora).")
         cand_r = st.session_state.get("risco_cand", candidatos_risco(ano_r)[0])
         pacote = carregar_risco(ano_r, cand_r, (arquivo_risco(ano_r).stat().st_mtime,))
-        if pacote["n_ufs_log"] < 26:
-            st.warning(f"O arquivo pré-calculado cobre {pacote['n_ufs_log']} de 26 UFs.")
+        if pacote["n_ufs_log"] < pacote["n_ufs"]:
+            st.warning(f"O arquivo pré-calculado cobre {pacote['n_ufs_log']} de {pacote['n_ufs']} UFs (26 estados + DF).")
 
         c1_, c2_ = st.columns([1, 1])
         c1_.radio("Candidato", candidatos_risco(ano_r), horizontal=True, key="risco_cand",
