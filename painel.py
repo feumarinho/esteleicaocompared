@@ -958,20 +958,29 @@ with aba_turnos:
                 "nova ou desmembrada, perfil do eleitorado, voto de candidatos eliminados e mobilização local "
                 "explicam a maioria.")
 
+        nome_c = cands[cand].title().split()[0]
+        MEDIDAS = {"z do desvio": ("z_desvio", 3.0, 0.5), "Votos × esperado": ("votos_vs_esperado", 30.0, 10.0),
+                   "Variação em votos": ("delta_votos", 50.0, 10.0)}
         k = st.columns(4)
-        modo = k[0].radio("Mostrar", ["Ambos", "Perdeu mais que o município", "Ganhou mais que o município"],
-                          key="modo_turnos")
-        lim_z = k[1].slider("|z do desvio| ≥", 0.0, 8.0, 3.0, 0.5, key="lim_turnos")
-        min_val = k[2].number_input("Mín. votos válidos nos dois turnos", 0, 500, 50, 10, key="minval_turnos")
-        ordem = k[3].radio("Ordenar por", ["z do desvio", "Votos × esperado", "Variação em votos"],
-                           key="ordem_turnos")
+        medida_t = k[0].radio("Filtrar e ordenar por", list(MEDIDAS), key="medida_turnos",
+                              help="z = desvio contra o município, corrigido pelo acaso. Votos × esperado = o "
+                                   "mesmo desvio em votos. Variação em votos = votos do 2º turno menos os do 1º, "
+                                   "sem comparar com o município.")
+        col_t, lim_pad, passo = MEDIDAS[medida_t]
+        modo = k[1].radio("Mostrar", ["Ambos", f"{nome_c}: ganhou mais / foi melhor",
+                                      f"{nome_c}: perdeu mais / foi pior"], key="modo_turnos",
+                          help="Com dois candidatos no 2º turno, onde um vai melhor o outro vai pior: "
+                               "'perdeu mais' para um é, na prática, 'ganhou mais' para o outro.")
+        lim_t = k[2].number_input(f"Mínimo (em valor absoluto) de: {medida_t}", 0.0, 100000.0, lim_pad, passo,
+                                  key=f"lim_turnos_{col_t}")
+        min_val = k[3].number_input("Mín. votos válidos nos dois turnos", 0, 500, 50, 10, key="minval_turnos")
 
         ok = (dt["validos1"] >= min_val) & (dt["validos2"] >= min_val)
-        alvo = ok & (dt["z_desvio"].abs() >= lim_z)
-        if modo.startswith("Perdeu"):
-            alvo &= dt["z_desvio"] < 0
-        elif modo.startswith("Ganhou"):
-            alvo &= dt["z_desvio"] > 0
+        alvo = ok & (dt[col_t].abs() >= lim_t)
+        if "perdeu" in modo:
+            alvo &= dt[col_t] < 0
+        elif "ganhou" in modo:
+            alvo &= dt[col_t] > 0
 
         # --- por unidade (UF, município, zona ou local)
         g = dt.groupby(filho, observed=True)
@@ -1022,11 +1031,14 @@ with aba_turnos:
             st.plotly_chart(fig, width="stretch")
 
         # --- lista de seções
-        chave_ord = {"z do desvio": "z_desvio", "Votos × esperado": "votos_vs_esperado",
-                     "Variação em votos": "delta_votos"}[ordem]
         sel = dt[alvo]
-        sel = sel.reindex(sel[chave_ord].abs().sort_values(ascending=False).index)
-        st.subheader(f"{len(sel):,} seções".replace(",", ".") + " fora do padrão do município")
+        if "perdeu" in modo:
+            sel = sel.sort_values(col_t)
+        elif "ganhou" in modo:
+            sel = sel.sort_values(col_t, ascending=False)
+        else:
+            sel = sel.reindex(sel[col_t].abs().sort_values(ascending=False).index)
+        st.subheader(f"{len(sel):,} seções".replace(",", ".") + f" · {nome_c}: {medida_t.lower()} ≥ {lim_t:g}")
         cols = [c for c in ["uf", "municipio", "zona", "secao", "z_desvio", "votos_vs_esperado", "delta_votos",
                             "pct1", "pct2", "esperado_pp", "desvio_pp", "votos1", "votos2", "validos1", "validos2",
                             "taxa_abst1", "taxa_abst2", "aptos", "nome_local"] if c in sel]
