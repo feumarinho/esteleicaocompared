@@ -20,6 +20,8 @@ arquivos = [
     *(RAIZ / "deploy").glob("Caddyfile*"),
     *(RAIZ / "dados").glob("secoes_*.parquet"),
     *(RAIZ / "dados").glob("logs_*.parquet"),
+    *(RAIZ / "dados").glob("votos_*.parquet"),
+    *(RAIZ / "dados").glob("candidatos_*.json"),
 ]
 arquivos = [a for a in arquivos if a.exists() and not a.name.startswith(("teste_", "logs_brutos"))]
 if not any(a.name.startswith("secoes_") for a in arquivos):

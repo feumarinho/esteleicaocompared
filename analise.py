@@ -329,3 +329,252 @@ def perfil_horario(df: pd.DataFrame) -> pd.Series:
     """Distribuição % dos votos por hora (horário equivalente), somando as seções de df."""
     v = votos_por_hora(df, "h")
     return v / max(v.sum(), 1)
+
+
+# ====================================================================== comparação entre turnos
+BRANCO, NULO = 95, 96          # "números" de voto em branco e nulo no arquivo do TSE
+MIN_VALIDOS_COMPARACAO = 30    # seções com menos votos válidos em algum turno ficam sem z
+CHAVE_SECAO = ["uf", "cd_municipio", "zona", "secao"]
+
+
+def candidatos_comuns(v1: pd.DataFrame, v2: pd.DataFrame) -> list[int]:
+    """Números dos candidatos que têm votos nos dois turnos (sem branco e nulo)."""
+    def nums(v):
+        return {int(c[2:]) for c in v.columns if c.startswith("v_") and v[c].sum() > 0}
+    return sorted(nums(v1) & nums(v2) - {BRANCO, NULO})
+
+
+def _logit(votos, validos):
+    """log(votos/não-votos) com correção de 0,5 (aguenta seções com 0% ou 100%)."""
+    return np.log((votos + 0.5) / (validos - votos + 0.5))
+
+
+def _var_logit(votos, validos):
+    return 1 / (votos + 0.5) + 1 / (validos - votos + 0.5)
+
+
+def _ajuste_variancia(r: pd.Series, v: pd.Series, bins: int = 10) -> tuple[float, float]:
+    """(tau², k) tal que Var(resíduo) ≈ tau² + k × v, estimado de forma robusta por faixas de v."""
+    df = pd.DataFrame({"r": r, "v": v}).dropna()
+    if len(df) < 200:
+        return np.nan, np.nan
+    df["faixa"] = pd.qcut(df["v"], min(bins, len(df) // 50), duplicates="drop")
+    g = df.groupby("faixa", observed=True)
+    x = g["v"].median().to_numpy()
+    y = g["r"].apply(lambda s: (1.4826 * (s - s.median()).abs().median()) ** 2).to_numpy()
+    k, tau2 = np.polyfit(x, y, 1)
+    if tau2 < 0:   # sem variação extra: ajusta só a inclinação
+        tau2, k = 0.0, float((x * y).sum() / (x * x).sum())
+    if k < 0:      # tamanho da seção não explica nada: variância constante
+        k, tau2 = 0.0, float(np.median(y))
+    return float(tau2), float(k)
+
+
+def _variancia_calibrada(resid: pd.Series, var_acaso: pd.Series, uf: pd.Series) -> pd.Series:
+    """
+    Variância esperada do resíduo de cada seção: tau² + k × (acaso dos dois turnos).
+    O acaso teórico (var_acaso) trata os dois turnos como independentes, mas são os MESMOS
+    eleitores votando duas vezes, então a variação real da diferença é menor (k < 1). Por isso
+    tau² e k são calibrados com os próprios dados, por UF (nacional se a UF tiver poucas seções),
+    de forma robusta (MAD), para não se deixar levar pelos próprios outliers.
+    """
+    tau_br, k_br = _ajuste_variancia(resid, var_acaso)
+    par = {u: _ajuste_variancia(resid[m], var_acaso[m]) for u, m in
+           ((u, uf == u) for u in uf.dropna().unique())}
+    tau2 = uf.map({u: p[0] if not np.isnan(p[0]) else tau_br for u, p in par.items()}).astype(float)
+    k = uf.map({u: p[1] if not np.isnan(p[1]) else k_br for u, p in par.items()}).astype(float)
+    return tau2 + k * var_acaso.fillna(var_acaso.median())
+
+
+def comparar_turnos(s1: pd.DataFrame, s2: pd.DataFrame, v1: pd.DataFrame, v2: pd.DataFrame,
+                    cand: int) -> pd.DataFrame:
+    """
+    Compara o desempenho de um candidato em cada seção no 1º e no 2º turno.
+
+    Absoluto:  votos1, votos2, delta_votos (= votos2 − votos1).
+    Relativo:  pct1, pct2 = % dos votos VÁLIDOS da seção (sem branco/nulo);
+               delta_pp = pct2 − pct1, em pontos percentuais.
+
+    Desvio em relação ao município: o município inteiro (sem contar a própria seção; UF se
+    tiver menos de 5 seções) teve uma variação média (a "onda" do município, medida em logit
+    para não ultrapassar 0–100%). A seção esperada é a que sobe/desce o mesmo tanto que o município:
+        esperado_pp = pct1 deslocado pela onda do município
+        desvio_pp   = pct2 − esperado_pp        (>0: foi melhor que o município; <0: pior)
+        votos_vs_esperado = votos2 − esperado × válidos2   (o mesmo desvio, em votos)
+    z_desvio divide o desvio (em logit) pela variação típica entre turnos de seções do mesmo tamanho
+    na UF (calibrada com os dados, de forma robusta; ver _variancia_calibrada). Escala ~1 = normal.
+    """
+    col = f"v_{cand}"
+    ref = s1[CHAVE_SECAO + [c for c in ["municipio", "local", "nome_local", "endereco_local", "aptos"]
+                            if c in s1]]
+    ref = ref.merge(s2[CHAVE_SECAO + ["aptos", "comparecimento"]].rename(
+        columns={"aptos": "aptos2", "comparecimento": "comparecimento2"}), on=CHAVE_SECAO, how="left")
+
+    def _preparar(v, n):
+        cols = [c for c in (col, f"v_{BRANCO}", f"v_{NULO}") if c in v]
+        tot = v[[c for c in v.columns if c.startswith("v_")]].sum(axis=1)
+        out = v[CHAVE_SECAO].copy()
+        out[f"votos{n}"] = v[col].astype("int32")
+        out[f"validos{n}"] = (tot - sum(v[f"v_{x}"] for x in (BRANCO, NULO) if f"v_{x}" in v)).astype("int32")
+        out[f"comparecimento_log{n}"] = tot.astype("int32")
+        return out
+    d = ref.merge(_preparar(v1, 1), on=CHAVE_SECAO, how="inner") \
+           .merge(_preparar(v2, 2), on=CHAVE_SECAO, how="inner")
+    d = d[(d["validos1"] > 0) & (d["validos2"] > 0)].reset_index(drop=True)
+
+    d["delta_votos"] = d["votos2"] - d["votos1"]
+    d["pct1"] = d["votos1"] / d["validos1"]
+    d["pct2"] = d["votos2"] / d["validos2"]
+    d["delta_pp"] = d["pct2"] - d["pct1"]
+    d["taxa_abst1"] = 1 - d["comparecimento_log1"] / d["aptos"]
+    d["taxa_abst2"] = 1 - d["comparecimento_log2"] / d["aptos2"]
+    d["var_abst_pp"] = d["taxa_abst2"] - d["taxa_abst1"]   # negativo = abstenção caiu
+
+    # variação do município (ou da UF) SEM a própria seção, na escala logit (log da razão
+    # voto/não-voto): uma seção que já tinha 97% não "estoura" 100% como aconteceria somando pontos.
+    def soma(k, g):
+        return d[k].groupby(g, observed=True).transform("sum")
+    g_mun, g_uf = [d["uf"], d["cd_municipio"]], d["uf"]
+    n_mun = d["votos1"].groupby(g_mun, observed=True).transform("size")
+    onda = {}
+    for nome, g in (("mun", g_mun), ("uf", g_uf)):
+        a1, b1 = soma("votos1", g) - d["votos1"], soma("validos1", g) - d["validos1"]
+        a2, b2 = soma("votos2", g) - d["votos2"], soma("validos2", g) - d["validos2"]
+        onda[nome] = _logit(a2, b2) - _logit(a1, b1)
+    usa_mun = n_mun >= MIN_SECOES_MUNICIPIO
+    d["referencia"] = np.where(usa_mun, "município", "UF")
+    onda_l = pd.Series(np.where(usa_mun, onda["mun"], onda["uf"]), index=d.index) \
+        .fillna(onda["uf"]).fillna(0.0)
+
+    l1, var1 = _logit(d["votos1"], d["validos1"]), _var_logit(d["votos1"], d["validos1"])
+    l2, var2 = _logit(d["votos2"], d["validos2"]), _var_logit(d["votos2"], d["validos2"])
+    esperado_l = l1 + onda_l
+    d["onda_pp"] = (1 / (1 + np.exp(-(_logit(d["votos1"], d["validos1"]) + onda_l))) - d["pct1"])
+    d["esperado_pp"] = 1 / (1 + np.exp(-esperado_l))
+    d["desvio_pp"] = d["pct2"] - d["esperado_pp"]
+    d["votos_vs_esperado"] = d["votos2"] - d["esperado_pp"] * d["validos2"]
+
+    ok = (d["validos1"] >= MIN_VALIDOS_COMPARACAO) & (d["validos2"] >= MIN_VALIDOS_COMPARACAO)
+    var_acaso = (var1 + var2).where(ok)
+    resid = (l2 - esperado_l).where(ok)
+    d["z_desvio"] = resid / np.sqrt(_variancia_calibrada(resid, var_acaso, d["uf"]))
+    return d
+
+
+# ====================================================================== fluxo de votos entre turnos
+def _nnls_gram(G: np.ndarray, h: np.ndarray) -> np.ndarray:
+    """Mínimos quadrados com coeficientes >= 0 (Lawson–Hanson) a partir de G = X'X e h = X'y.
+    Escrito em numpy para não exigir scipy; o problema é pequeno (poucas origens)."""
+    n = len(h)
+    x, passivo = np.zeros(n), np.zeros(n, bool)
+    tol = 1e-10 * max(1.0, float(np.abs(h).max()))
+    w = h - G @ x
+    for _ in range(10 * n + 10):
+        if passivo.all() or w[~passivo].max() <= tol:
+            break
+        passivo[np.where(~passivo)[0][np.argmax(w[~passivo])]] = True
+        while True:
+            s = np.zeros(n)
+            idx = np.where(passivo)[0]
+            s[idx] = np.linalg.solve(G[np.ix_(idx, idx)] + 1e-12 * np.eye(len(idx)), h[idx])
+            if s[idx].min() > 0:
+                x = s
+                break
+            neg = passivo & (s <= 0)
+            alfa = np.min(x[neg] / (x[neg] - s[neg] + 1e-300))
+            x = x + alfa * (s - x)
+            passivo &= x > 1e-12
+            x[~passivo] = 0.0
+        w = h - G @ x
+    return x
+
+
+def _fechar_totais(F: np.ndarray, origem: np.ndarray, destino: np.ndarray, iteracoes: int = 300) -> np.ndarray:
+    """Ajusta a matriz de fluxos (IPF) para que as linhas somem o total de cada origem
+    e as colunas o total de cada destino."""
+    F = np.maximum(F, 1e-9)
+    for _ in range(iteracoes):
+        F = F * (origem / F.sum(1))[:, None]
+        F = F * (destino / F.sum(0))[None, :]
+    return np.where(F < 500, 0.0, F)   # < 500 votos é resíduo numérico do ajuste, não fluxo
+
+
+def preparar_fluxo(s1: pd.DataFrame, s2: pd.DataFrame, v1: pd.DataFrame, v2: pd.DataFrame,
+                   finalistas: list[int], n_individuais: int = 3) -> dict:
+    """
+    Resume cada município em matrizes pequenas (X'X e X'y de cada destino), o que permite estimar
+    o fluxo de qualquer conjunto de UFs e reamostrar municípios (bootstrap) quase de graça.
+
+    Origens (1º turno):  finalistas, os maiores candidatos eliminados (um a um), os demais
+                         candidatos juntos, branco+nulo, abstenção.
+    Destinos (2º turno): finalistas, branco+nulo, abstenção.
+    """
+    v1 = v1.rename(columns={c: c + "_1" for c in v1 if c.startswith("v_")})
+    v2 = v2.rename(columns={c: c + "_2" for c in v2 if c.startswith("v_")})
+    d = s1[CHAVE_SECAO + ["aptos"]].merge(v1, on=CHAVE_SECAO).merge(
+        s2[CHAVE_SECAO + ["aptos"]].rename(columns={"aptos": "aptos2"}), on=CHAVE_SECAO).merge(v2, on=CHAVE_SECAO)
+    d = d[d["aptos"] > 0].reset_index(drop=True)
+    c1 = [c for c in d if c.startswith("v_") and c.endswith("_1")]
+    c2 = [c for c in d if c.startswith("v_") and c.endswith("_2")]
+    tot1, tot2 = d[c1].sum(axis=1), d[c2].sum(axis=1)
+    num = lambda c: int(c[2:-2])
+    eliminados = sorted((c for c in c1 if num(c) not in (*finalistas, BRANCO, NULO)),
+                        key=lambda c: -d[c].sum())
+    indiv, demais = eliminados[:n_individuais], eliminados[n_individuais:]
+    origens = {f"f{n}": d[f"v_{n}_1"] for n in finalistas}
+    for c in indiv:
+        origens[f"c{num(c)}"] = d[c]
+    if demais:
+        origens["demais"] = d[demais].sum(axis=1)
+    origens["brancos_nulos"] = d.get(f"v_{BRANCO}_1", 0) + d.get(f"v_{NULO}_1", 0)
+    origens["abstencao"] = d["aptos"] - tot1
+    destinos = {f"f{n}": d[f"v_{n}_2"] for n in finalistas}
+    destinos["brancos_nulos"] = d.get(f"v_{BRANCO}_2", 0) + d.get(f"v_{NULO}_2", 0)
+    destinos["abstencao"] = d["aptos2"] - tot2
+
+    peso = np.sqrt(d["aptos"].to_numpy(float))                 # seções grandes variam menos (em proporção)
+    X = np.column_stack([origens[k].to_numpy(float) for k in origens]) / peso[:, None]
+    Y = np.column_stack([destinos[k].to_numpy(float) for k in destinos]) / peso[:, None]
+    mun = d.groupby(["uf", "cd_municipio"], observed=True).ngroup().to_numpy()
+    ordem = np.argsort(mun, kind="stable")
+    cortes = np.r_[0, np.cumsum(np.bincount(mun))]
+    M, k, nd = len(cortes) - 1, X.shape[1], Y.shape[1]
+    G, H = np.zeros((M, k, k)), np.zeros((M, k, nd))
+    O, D = np.zeros((M, k)), np.zeros((M, nd))
+    Xo, Yo = X[ordem], Y[ordem]
+    Oraw = np.column_stack([origens[n].to_numpy(float) for n in origens])[ordem]
+    Draw = np.column_stack([destinos[n].to_numpy(float) for n in destinos])[ordem]
+    for m in range(M):
+        a, b = cortes[m], cortes[m + 1]
+        G[m], H[m] = Xo[a:b].T @ Xo[a:b], Xo[a:b].T @ Yo[a:b]
+        O[m], D[m] = Oraw[a:b].sum(0), Draw[a:b].sum(0)
+    uf_mun = d["uf"].astype(str).to_numpy()[ordem][cortes[:-1]]
+    return {"uf": uf_mun, "G": G, "H": H, "O": O, "D": D, "origens": list(origens), "destinos": list(destinos)}
+
+
+def estimar_fluxos(prep: dict, ufs: list[str] | None = None, n_boot: int = 0, seed: int = 1) -> dict:
+    """
+    Estima quantos eleitores de cada origem (1º turno) foram para cada destino (2º turno).
+    Regressão ecológica: em cada seção, o que saiu para um destino é explicado pelo que cada
+    origem tinha ali, com fluxos >= 0; depois os totais são fechados (IPF).
+    Devolve {"F": votos [origem × destino], "lo"/"hi": intervalo 5%–95% (bootstrap por município, se n_boot)}.
+    """
+    sel = np.ones(len(prep["uf"]), bool) if not ufs else np.isin(prep["uf"], ufs)
+    G, H, O, D = (prep[k][sel] for k in ("G", "H", "O", "D"))
+    nd = H.shape[2]
+
+    def _uma(idx):
+        g, h = G[idx].sum(0), H[idx].sum(0)
+        B = np.column_stack([_nnls_gram(g, h[:, j]) for j in range(nd)])
+        o, de = O[idx].sum(0), D[idx].sum(0)
+        return _fechar_totais(B * o[:, None], o, de)
+
+    F = _uma(np.arange(len(G)))
+    out = {"F": pd.DataFrame(F, index=prep["origens"], columns=prep["destinos"]),
+           "municipios": int(sel.sum()), "secoes_origem": O.sum(0)}
+    if n_boot and len(G) > 5:
+        rng = np.random.default_rng(seed)
+        reps = np.stack([_uma(rng.integers(0, len(G), len(G))) for _ in range(n_boot)])
+        out["lo"] = pd.DataFrame(np.quantile(reps, .05, axis=0), index=prep["origens"], columns=prep["destinos"])
+        out["hi"] = pd.DataFrame(np.quantile(reps, .95, axis=0), index=prep["origens"], columns=prep["destinos"])
+    return out

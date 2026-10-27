@@ -32,6 +32,7 @@ e uma seção "Como ler este painel". Manter esse tom.
 | `baixar_logs.py` | Baixa os logs das urnas por UF e gera `dados/logs_<ano>_t<turno>_<UF>.parquet` (métricas por seção). |
 | `download_tse.py` | Downloads resilientes: modo padrão baixa **só os logs** de dentro do zip remoto via HTTP Range (lê o diretório central do zip, 8 conexões, retomável, grava em `dados/logs_brutos_<ano>_<turno>t_<UF>.zip`); plano B `--completo` baixa o zip inteiro com retomada. |
 | `logs_urna.py` | Parser do log da urna (`logd.dat`) e cálculo de métricas por seção. |
+| `baixar_votos.py` | Baixa "Votação por seção eleitoral" (arquivo `votacao_secao_2026_BR.zip`, Presidente, 1º e 2º turno) → `dados/votos_<ano>_t<turno>.parquet` (colunas `v_<nº do candidato>`, `v_95` branco, `v_96` nulo) e `dados/candidatos_<ano>_t<turno>.json`. Votos batem 100% com o comparecimento oficial. |
 | `analise.py` | Estatística: z da abstenção, z de proporções (sem digital, manual, após 17h), z do horário, sinais, correção de fuso. |
 | `painel.py` | Painel Streamlit. |
 | `gerar_dados_teste.py` | Gera dados sintéticos com anomalias plantadas (ano 1999) para testes. |
@@ -76,6 +77,22 @@ e uma seção "Como ler este painel". Manter esse tom.
   - liberação manual: z_manual ≥ limite e ≥ 5 casos.
 - **Cruzamento** (aba 🔀): score = min dos z dos critérios escolhidos na barra lateral.
 - "sinais" por seção (texto): ≥10% após 17h; urna ociosa ≥20 min antes das 17h mas votos depois; maioria sem biometria após 17h; ritmo muito rápido após 17h; 1h+ mais tarde que a escola; sem digital/manual muito acima do município; 8+ liberações manuais seguidas; log ≠ comparecimento; urna substituída; abertura atrasada.
+
+### Comparação 1º × 2º turno (aba 🔁, `analise.comparar_turnos`)
+
+- Precisa de `secoes_2026_t1/t2` + `votos_2026_t1/t2` + `candidatos_*`. Os logs do 2º turno **não** são necessários (em 27/10/2026 ainda davam 404 no TSE).
+- Por candidato presente nos dois turnos: votos e % dos votos válidos em cada turno; variação absoluta (`delta_votos`) e em p.p.
+- **Desvio vs município**: onda do município (leave-one-out, UF se < 5 seções) medida em **logit** (evita estourar 100% em seções com 97%); `esperado_pp`, `desvio_pp`, `votos_vs_esperado` (desvio em votos) e `z_desvio` = desvio em logit ÷ escala **calibrada com os dados** (`_variancia_calibrada`: Var ≈ tau² + k×acaso, robusta/MAD, por UF). Calibrar é necessário porque os dois turnos têm os MESMOS eleitores: somar o acaso como independente deixava o z com desvio padrão 0,5 (escondia anomalias); calibrado, ≈ 1.
+- Controle de abstenção: o desvio quase não se correlaciona com a variação da abstenção da própria seção (|corr| < 0,1), pois o esperado já usa os votos válidos reais do 2º turno. A tabela mostra `var_abst_pp`.
+- Cortes sugeridos para "melhora muito grande": z ≥ 4 e |votos × esperado| ≥ 20 (padrões do painel; Lula ≈ 82 seções, Flávio ≈ 113).
+- Atenção: no 1º turno há vários candidatos e no 2º dois; o valor bruto quase sempre sobe, por isso o que importa é o desvio contra o município.
+
+### Fluxo de votos entre turnos (aba 🧭, `analise.preparar_fluxo` / `estimar_fluxos`)
+
+- Regressão ecológica: em cada seção, o que foi para cada destino do 2º turno (Lula, Flávio, brancos+nulos, abstenção) é explicado pelo que cada origem do 1º turno tinha ali (Lula, Flávio, 3 maiores eliminados, demais, brancos+nulos, abstenção), com coeficientes ≥ 0 (NNLS em numpy, sem scipy, via X'X por município) e totais fechados por IPF. Peso 1/√aptos.
+- Filtra por UF (sidebar); intervalo 5–95% por bootstrap de municípios (100 reamostragens, ~0,4 s). Município/zona caem para a UF (poucas seções).
+- Achado nacional (27/10/2026): Flávio → Lula ≈ 0 (coef. sem restrição −0,04); os +10,4 mi do Lula viriam de brancos/nulos (~3,8 mi), ex-abstêmios (~3,4 mi) e eleitores dos eliminados (~3,6 mi). Cury → Lula 55%, Renan 33%, Caiado 30%.
+- Limites: troca simétrica de lado é invisível; fluxos entre grupos que andam juntos no mapa (brancos/nulos × abstenção) são mal identificados; o intervalo cobre só o acaso amostral, não o erro do modelo.
 
 ## 5. Painel: desempenho (importante para produção)
 
@@ -133,5 +150,5 @@ A base nacional tem ~500 mil seções × ~150 colunas (~300 MB em memória). Já
 
 - No Mac (zsh), não coloque comentários `#` na mesma linha de comandos que o usuário vai colar (o zsh interativo não os trata como comentário: deu erro no `pip install`).
 - No Mac use `python3`/`.venv`; o usuário usa Python 3.14 no Mac.
-- O usuário faz os commits/push ele mesmo; não faça push sem pedir.
+- **Neste projeto (e só nele)** o usuário autorizou o Claude a fazer commits, push, merges e gerenciar o repositório. Isso não vale para outros projetos. Ainda assim, não apague nada nem reescreva histórico sem avisar.
 - Explique em linguagem simples; o usuário não é estatístico.
