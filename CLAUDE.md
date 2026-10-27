@@ -141,5 +141,5 @@ A base nacional tem ~500 mil seções × ~150 colunas (~300 MB em memória). Já
 
 - No Mac (zsh), não coloque comentários `#` na mesma linha de comandos que o usuário vai colar (o zsh interativo não os trata como comentário: deu erro no `pip install`).
 - No Mac use `python3`/`.venv`; o usuário usa Python 3.14 no Mac.
-- O usuário faz os commits/push ele mesmo; não faça push sem pedir.
+- **Neste projeto (e só nele)** o usuário autorizou o Claude a fazer commits, push, merges e gerenciar o repositório. Isso não vale para outros projetos. Ainda assim, não apague nada nem reescreva histórico sem avisar.
 - Explique em linguagem simples; o usuário não é estatístico.
