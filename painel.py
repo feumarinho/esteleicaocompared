@@ -958,7 +958,7 @@ with aba_turnos:
                 "nova ou desmembrada, perfil do eleitorado, voto de candidatos eliminados e mobilização local "
                 "explicam a maioria.")
 
-        nome_c = cands[cand].title().split()[0]
+        nome_c = {13: "Lula", 22: "Flávio"}.get(cand, cands[cand].title().split()[0])
         MEDIDAS = {"z do desvio": ("z_desvio", 4.0, 0.5), "Votos × esperado": ("votos_vs_esperado", 20.0, 10.0),
                    "Variação em votos": ("delta_votos", 50.0, 10.0)}
         k = st.columns(5)
@@ -1030,7 +1030,8 @@ with aba_turnos:
             fig.add_shape(type="line", x0=0, y0=0, x1=1, y1=1, line=dict(color="black", dash="dot"))
             fig.update_layout(title="No 2º turno: esperado × realizado (% válidos)", xaxis_tickformat=".0%",
                               yaxis_tickformat=".0%", xaxis_title="esperado (seguindo o município)",
-                              yaxis_title="realizado", height=420, legend=dict(orientation="h"))
+                              yaxis_title="realizado", height=420,
+                              legend=dict(orientation="h", y=1.12, x=0))
             st.plotly_chart(fig, width="stretch")
 
         # --- lista de seções
