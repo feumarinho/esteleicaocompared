@@ -19,6 +19,9 @@ from analise import (BRANCO, NULO, comparar_turnos, estimar_fluxos, juntar_horar
 st.set_page_config(page_title="Abstenção por seção", page_icon="🗳️", layout="wide")
 PASTA = Path(__file__).parent / "dados"
 RESULTADOS = Path(__file__).parent / "resultados"   # resultados pré-calculados, versionados no git
+REPO_URL = "https://github.com/feumarinho/esteleicaocompared"
+ORIGINAL_AUTOR = "Ricardo Albuquerque"
+ORIGINAL_URL = ""   # endereço do repositório de onde este projeto foi derivado (fork); vazio = só o nome
 COR_ALTA, COR_BAIXA, COR_NORMAL = "#d6453d", "#2f6fb5", "#9aa4b1"
 TODOS = "— Todos —"
 NOMES_CURTOS = {13: "Lula", 22: "Flávio", 70: "Cury", 14: "Renan", 55: "Caiado", 30: "Zema"}
@@ -317,6 +320,16 @@ def sinalizar(d: pd.DataFrame) -> pd.DataFrame:
 
 
 df = sinalizar(df)
+
+# ---------------------------------------------------------------- aviso de abertura
+_orig = f"[{ORIGINAL_AUTOR}]({ORIGINAL_URL})" if ORIGINAL_URL else f"**{ORIGINAL_AUTOR}**"
+st.info(
+    "**Aviso.** Este site é uma **ferramenta**. Os dados são **públicos** (TSE). As conclusões tiradas deles "
+    "são de quem as tira: **não temos nenhuma relação com elas**. O código está em "
+    f"[{REPO_URL.removeprefix('https://')}]({REPO_URL}). Se tiver dúvida de como os cálculos são feitos, peça à sua "
+    "IA para ler o código e explicar.\n\n"
+    f"Créditos: este projeto é derivado (fork) do projeto original de {_orig}, que criou a base do painel "
+    "(abstenção, logs das urnas e critérios de seções atípicas).", icon="ℹ️")
 
 # ---------------------------------------------------------------- cabeçalho
 nivel = ("Brasil" if uf == TODOS else uf if mun == TODOS else

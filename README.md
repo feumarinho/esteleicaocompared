@@ -227,3 +227,15 @@ atrasada, seções agregadas. O que separa fila de algo estranho é o contexto:
 - uma seção que ficou **ociosa antes das 17h** e depois recebeu uma **rajada de
   votos sem biometria**, enquanto as outras seções da escola encerraram
   normalmente, merece um olhar no boletim, no log e na ata da seção.
+
+## Aviso e créditos
+
+Este projeto é uma **ferramenta**. Os dados são **públicos** (TSE). As conclusões tiradas deles são de quem as
+tira: os autores deste repositório não têm relação com elas. Se tiver dúvida de como os cálculos são feitos,
+peça à sua IA para ler o código (`analise.py`, `painel.py`) e explicar.
+
+Código: https://github.com/feumarinho/esteleicaocompared
+
+Créditos: derivado (fork) do projeto original de **Ricardo Albuquerque**, que criou a base do painel
+(abstenção por seção, logs das urnas e critérios de seções atípicas). Este fork acrescenta a comparação 1º × 2º turno,
+o fluxo de votos e o cruzamento de seções de risco com o desempenho do 2º turno.
