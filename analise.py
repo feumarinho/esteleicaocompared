@@ -329,3 +329,107 @@ def perfil_horario(df: pd.DataFrame) -> pd.Series:
     """Distribuição % dos votos por hora (horário equivalente), somando as seções de df."""
     v = votos_por_hora(df, "h")
     return v / max(v.sum(), 1)
+
+
+# ====================================================================== comparação entre turnos
+BRANCO, NULO = 95, 96          # "números" de voto em branco e nulo no arquivo do TSE
+MIN_VALIDOS_COMPARACAO = 30    # seções com menos votos válidos em algum turno ficam sem z
+CHAVE_SECAO = ["uf", "cd_municipio", "zona", "secao"]
+
+
+def candidatos_comuns(v1: pd.DataFrame, v2: pd.DataFrame) -> list[int]:
+    """Números dos candidatos que têm votos nos dois turnos (sem branco e nulo)."""
+    def nums(v):
+        return {int(c[2:]) for c in v.columns if c.startswith("v_") and v[c].sum() > 0}
+    return sorted(nums(v1) & nums(v2) - {BRANCO, NULO})
+
+
+def _logit(votos, validos):
+    """log(votos/não-votos) com correção de 0,5 (aguenta seções com 0% ou 100%)."""
+    return np.log((votos + 0.5) / (validos - votos + 0.5))
+
+
+def _var_logit(votos, validos):
+    return 1 / (votos + 0.5) + 1 / (validos - votos + 0.5)
+
+
+def comparar_turnos(s1: pd.DataFrame, s2: pd.DataFrame, v1: pd.DataFrame, v2: pd.DataFrame,
+                    cand: int) -> pd.DataFrame:
+    """
+    Compara o desempenho de um candidato em cada seção no 1º e no 2º turno.
+
+    Absoluto:  votos1, votos2, delta_votos (= votos2 − votos1).
+    Relativo:  pct1, pct2 = % dos votos VÁLIDOS da seção (sem branco/nulo);
+               delta_pp = pct2 − pct1, em pontos percentuais.
+
+    Desvio em relação ao município: o município inteiro (sem contar a própria seção; UF se
+    tiver menos de 5 seções) teve uma variação média (a "onda" do município, medida em logit
+    para não ultrapassar 0–100%). A seção esperada é a que sobe/desce o mesmo tanto que o município:
+        esperado_pp = pct1 deslocado pela onda do município
+        desvio_pp   = pct2 − esperado_pp        (>0: foi melhor que o município; <0: pior)
+        votos_vs_esperado = votos2 − esperado × válidos2   (o mesmo desvio, em votos)
+    z_desvio divide o desvio (em logit) pelo acaso dos dois turnos mais a variação natural
+    entre seções da UF (tau², robusta), como no z ajustado da abstenção.
+    """
+    col = f"v_{cand}"
+    ref = s1[CHAVE_SECAO + [c for c in ["municipio", "local", "nome_local", "endereco_local", "aptos"]
+                            if c in s1]]
+    ref = ref.merge(s2[CHAVE_SECAO + ["aptos", "comparecimento"]].rename(
+        columns={"aptos": "aptos2", "comparecimento": "comparecimento2"}), on=CHAVE_SECAO, how="left")
+
+    def _preparar(v, n):
+        cols = [c for c in (col, f"v_{BRANCO}", f"v_{NULO}") if c in v]
+        tot = v[[c for c in v.columns if c.startswith("v_")]].sum(axis=1)
+        out = v[CHAVE_SECAO].copy()
+        out[f"votos{n}"] = v[col].astype("int32")
+        out[f"validos{n}"] = (tot - sum(v[f"v_{x}"] for x in (BRANCO, NULO) if f"v_{x}" in v)).astype("int32")
+        out[f"comparecimento_log{n}"] = tot.astype("int32")
+        return out
+    d = ref.merge(_preparar(v1, 1), on=CHAVE_SECAO, how="inner") \
+           .merge(_preparar(v2, 2), on=CHAVE_SECAO, how="inner")
+    d = d[(d["validos1"] > 0) & (d["validos2"] > 0)].reset_index(drop=True)
+
+    d["delta_votos"] = d["votos2"] - d["votos1"]
+    d["pct1"] = d["votos1"] / d["validos1"]
+    d["pct2"] = d["votos2"] / d["validos2"]
+    d["delta_pp"] = d["pct2"] - d["pct1"]
+    d["taxa_abst1"] = 1 - d["comparecimento_log1"] / d["aptos"]
+    d["taxa_abst2"] = 1 - d["comparecimento_log2"] / d["aptos2"]
+
+    # variação do município (ou da UF) SEM a própria seção, na escala logit (log da razão
+    # voto/não-voto): uma seção que já tinha 97% não "estoura" 100% como aconteceria somando pontos.
+    def soma(k, g):
+        return d[k].groupby(g, observed=True).transform("sum")
+    g_mun, g_uf = [d["uf"], d["cd_municipio"]], d["uf"]
+    n_mun = d["votos1"].groupby(g_mun, observed=True).transform("size")
+    onda = {}
+    for nome, g in (("mun", g_mun), ("uf", g_uf)):
+        a1, b1 = soma("votos1", g) - d["votos1"], soma("validos1", g) - d["validos1"]
+        a2, b2 = soma("votos2", g) - d["votos2"], soma("validos2", g) - d["validos2"]
+        onda[nome] = _logit(a2, b2) - _logit(a1, b1)
+    usa_mun = n_mun >= MIN_SECOES_MUNICIPIO
+    d["referencia"] = np.where(usa_mun, "município", "UF")
+    onda_l = pd.Series(np.where(usa_mun, onda["mun"], onda["uf"]), index=d.index) \
+        .fillna(onda["uf"]).fillna(0.0)
+
+    l1, var1 = _logit(d["votos1"], d["validos1"]), _var_logit(d["votos1"], d["validos1"])
+    l2, var2 = _logit(d["votos2"], d["validos2"]), _var_logit(d["votos2"], d["validos2"])
+    esperado_l = l1 + onda_l
+    d["onda_pp"] = (1 / (1 + np.exp(-(_logit(d["votos1"], d["validos1"]) + onda_l))) - d["pct1"])
+    d["esperado_pp"] = 1 / (1 + np.exp(-esperado_l))
+    d["desvio_pp"] = d["pct2"] - d["esperado_pp"]
+    d["votos_vs_esperado"] = d["votos2"] - d["esperado_pp"] * d["validos2"]
+
+    ok = (d["validos1"] >= MIN_VALIDOS_COMPARACAO) & (d["validos2"] >= MIN_VALIDOS_COMPARACAO)
+    var_acaso = (var1 + var2).where(ok)
+    resid = (l2 - esperado_l).where(ok)
+
+    def _tau2_uf(idx):
+        r = resid.loc[idx].dropna()
+        if len(r) < 20:
+            return 0.0
+        v = (1.4826 * (r - r.median()).abs().median()) ** 2
+        return max(v - float(var_acaso.loc[r.index].median()), 0.0)
+    tau2 = resid.groupby(d["uf"], observed=True).transform(lambda s: _tau2_uf(s.index))
+    d["z_desvio"] = resid / np.sqrt(var_acaso + tau2)
+    return d

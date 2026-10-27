@@ -32,6 +32,7 @@ e uma seção "Como ler este painel". Manter esse tom.
 | `baixar_logs.py` | Baixa os logs das urnas por UF e gera `dados/logs_<ano>_t<turno>_<UF>.parquet` (métricas por seção). |
 | `download_tse.py` | Downloads resilientes: modo padrão baixa **só os logs** de dentro do zip remoto via HTTP Range (lê o diretório central do zip, 8 conexões, retomável, grava em `dados/logs_brutos_<ano>_<turno>t_<UF>.zip`); plano B `--completo` baixa o zip inteiro com retomada. |
 | `logs_urna.py` | Parser do log da urna (`logd.dat`) e cálculo de métricas por seção. |
+| `baixar_votos.py` | Baixa "Votação por seção eleitoral" (arquivo `votacao_secao_2026_BR.zip`, Presidente, 1º e 2º turno) → `dados/votos_<ano>_t<turno>.parquet` (colunas `v_<nº do candidato>`, `v_95` branco, `v_96` nulo) e `dados/candidatos_<ano>_t<turno>.json`. Votos batem 100% com o comparecimento oficial. |
 | `analise.py` | Estatística: z da abstenção, z de proporções (sem digital, manual, após 17h), z do horário, sinais, correção de fuso. |
 | `painel.py` | Painel Streamlit. |
 | `gerar_dados_teste.py` | Gera dados sintéticos com anomalias plantadas (ano 1999) para testes. |
@@ -76,6 +77,13 @@ e uma seção "Como ler este painel". Manter esse tom.
   - liberação manual: z_manual ≥ limite e ≥ 5 casos.
 - **Cruzamento** (aba 🔀): score = min dos z dos critérios escolhidos na barra lateral.
 - "sinais" por seção (texto): ≥10% após 17h; urna ociosa ≥20 min antes das 17h mas votos depois; maioria sem biometria após 17h; ritmo muito rápido após 17h; 1h+ mais tarde que a escola; sem digital/manual muito acima do município; 8+ liberações manuais seguidas; log ≠ comparecimento; urna substituída; abertura atrasada.
+
+### Comparação 1º × 2º turno (aba 🔁, `analise.comparar_turnos`)
+
+- Precisa de `secoes_2026_t1/t2` + `votos_2026_t1/t2` + `candidatos_*`. Os logs do 2º turno **não** são necessários (em 27/10/2026 ainda davam 404 no TSE).
+- Por candidato presente nos dois turnos: votos e % dos votos válidos em cada turno; variação absoluta (`delta_votos`) e em p.p.
+- **Desvio vs município**: onda do município (leave-one-out, UF se < 5 seções) medida em **logit** (evita estourar 100% em seções com 97%); `esperado_pp`, `desvio_pp`, `votos_vs_esperado` (desvio em votos) e `z_desvio` (acaso do logit empírico dos 2 turnos + tau² robusto por UF).
+- Atenção: no 1º turno há vários candidatos e no 2º dois; o valor bruto quase sempre sobe, por isso o que importa é o desvio contra o município.
 
 ## 5. Painel: desempenho (importante para produção)
 
