@@ -87,6 +87,13 @@ e uma seção "Como ler este painel". Manter esse tom.
 - Cortes sugeridos para "melhora muito grande": z ≥ 4 e |votos × esperado| ≥ 20 (padrões do painel; Lula ≈ 82 seções, Flávio ≈ 113).
 - Atenção: no 1º turno há vários candidatos e no 2º dois; o valor bruto quase sempre sobe, por isso o que importa é o desvio contra o município.
 
+### Fluxo de votos entre turnos (aba 🧭, `analise.preparar_fluxo` / `estimar_fluxos`)
+
+- Regressão ecológica: em cada seção, o que foi para cada destino do 2º turno (Lula, Flávio, brancos+nulos, abstenção) é explicado pelo que cada origem do 1º turno tinha ali (Lula, Flávio, 3 maiores eliminados, demais, brancos+nulos, abstenção), com coeficientes ≥ 0 (NNLS em numpy, sem scipy, via X'X por município) e totais fechados por IPF. Peso 1/√aptos.
+- Filtra por UF (sidebar); intervalo 5–95% por bootstrap de municípios (100 reamostragens, ~0,4 s). Município/zona caem para a UF (poucas seções).
+- Achado nacional (27/10/2026): Flávio → Lula ≈ 0 (coef. sem restrição −0,04); os +10,4 mi do Lula viriam de brancos/nulos (~3,8 mi), ex-abstêmios (~3,4 mi) e eleitores dos eliminados (~3,6 mi). Cury → Lula 55%, Renan 33%, Caiado 30%.
+- Limites: troca simétrica de lado é invisível; fluxos entre grupos que andam juntos no mapa (brancos/nulos × abstenção) são mal identificados; o intervalo cobre só o acaso amostral, não o erro do modelo.
+
 ## 5. Painel: desempenho (importante para produção)
 
 A base nacional tem ~500 mil seções × ~150 colunas (~300 MB em memória). Já otimizado:
