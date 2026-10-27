@@ -1471,8 +1471,10 @@ with aba_risco:
                 f"Descontando o que o município inteiro fez, nas marcadas o {quem_r} ficou "
                 f"**{_pt(abs(a_['desvio_pp']), 2)} p.p. {sinal} do esperado** "
                 f"({_pt(abs(a_['votos_vs_esperado']))} votos {sinal}). "
-                + ("Isso é **distinguível do acaso**." if distinto else
-                   "Isso **não se distingue do acaso** (o intervalo inclui zero)."))
+                + (("Isso é estatisticamente distinguível do acaso, mas a diferença é **pequena** "
+                    "(menos de 0,25 p.p.): com tantas seções, até desvios mínimos aparecem como significativos."
+                    if abs(a_["desvio_pp"]) < 0.25 else "Isso é **distinguível do acaso** e de tamanho relevante.")
+                   if distinto else "Isso **não se distingue do acaso** (o intervalo inclui zero)."))
 
         # --- tabela
         st.markdown("**Desempenho por grupo de seções**")
