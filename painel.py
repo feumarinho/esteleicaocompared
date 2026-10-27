@@ -18,6 +18,7 @@ from analise import (BRANCO, NULO, comparar_turnos, estimar_fluxos, juntar_horar
 
 st.set_page_config(page_title="Abstenção por seção", page_icon="🗳️", layout="wide")
 PASTA = Path(__file__).parent / "dados"
+RESULTADOS = Path(__file__).parent / "resultados"   # resultados pré-calculados, versionados no git
 COR_ALTA, COR_BAIXA, COR_NORMAL = "#d6453d", "#2f6fb5", "#9aa4b1"
 TODOS = "— Todos —"
 NOMES_CURTOS = {13: "Lula", 22: "Flávio", 70: "Cury", 14: "Renan", 55: "Caiado", 30: "Zema"}
@@ -84,30 +85,35 @@ def carregar_comparacao(ano: str, cand: int, assinatura: tuple, incluir_zz: bool
     return d.reset_index(drop=True).copy()
 
 
-@st.cache_resource(show_spinner="Cruzando risco do 1º turno com o 2º…", max_entries=2)
-def carregar_risco(ano: str, cand: int, assinatura: tuple, incluir_zz: bool) -> dict:
-    """Seções do 1º turno com log (métricas dos três critérios) juntas ao desempenho do candidato no 2º."""
-    sec_t1 = PASTA / f"secoes_{ano}_t1.parquet"
-    # mesmas assinaturas das outras abas: reaproveita os caches (não duplica a base na memória)
-    base1 = carregar(str(sec_t1), tuple((q.name, q.stat().st_mtime) for q in [sec_t1, *arquivos_logs(sec_t1)]),
-                     incluir_zz)
-    cols_b = [c for c in ["uf", "cd_municipio", "zona", "secao", "aptos", "taxa_abstencao", "z_ajustado",
-                          "z_binomial", "z_simples", "pct_apos_17", "votos_apos_17", "dif_local_min", "z_manual",
-                          "votos_manual", "pct_manual_cadastrados", "pct_sem_digital"] if c in base1]
-    sub = base1.loc[base1["tem_log"].astype(bool), cols_b].copy()
-    sub["uf"] = sub["uf"].astype(str)
-    cmp_r = carregar_comparacao(ano, cand, tuple((q.name, q.stat().st_mtime) for q in arquivos_turnos(ano).values()),
-                                incluir_zz)
-    cols_c = ["uf", "cd_municipio", "zona", "secao", "municipio", "nome_local", "votos1", "votos2", "validos1",
-              "validos2", "pct1", "pct2", "delta_votos", "esperado_pp", "desvio_pp", "votos_vs_esperado", "z_desvio"]
-    cc = cmp_r[[c for c in cols_c if c in cmp_r]].copy()
-    cc["uf"] = cc["uf"].astype(str)
-    mr = sub.merge(cc, on=["uf", "cd_municipio", "zona", "secao"], how="inner")
-    mr = mr[(mr["validos1"] >= 30) & (mr["validos2"] >= 30)].reset_index(drop=True)
-    for c in mr.select_dtypes("float64").columns:
-        mr[c] = mr[c].astype("float32")
-    return {"mr": mr.copy(), "n_ufs_log": int(sub["uf"].nunique()), "n_ufs": int(base1["uf"].nunique()),
-            "tem_manual": "z_manual" in base1}
+def arquivo_risco(ano: str) -> Path:
+    """Arquivo ESTÁTICO (vai no git) gerado por gerar_resultado_risco.py."""
+    return RESULTADOS / f"risco_{ano}.parquet"
+
+
+def candidatos_risco(ano: str) -> list[int]:
+    import json
+    return json.loads(arquivo_risco(ano).with_suffix(".json").read_text(encoding="utf-8"))["candidatos"]
+
+
+@st.cache_resource(show_spinner="Carregando o cruzamento de risco…", max_entries=2)
+def carregar_risco(ano: str, cand: int, assinatura: tuple) -> dict:
+    """Seções do 1º turno com log (métricas dos três critérios) e desempenho do candidato no 2º turno.
+    Lê o arquivo estático; em produção não baixa logs nem lê os .parquet de dados/."""
+    import pyarrow.parquet as pq
+    cols_f = pq.read_schema(arquivo_risco(ano)).names
+    comum = [c for c in cols_f if not any(c.endswith(f"_{n}") for n in (13, 22)) or c.endswith(f"_{cand}")]
+    d = pd.read_parquet(arquivo_risco(ano), columns=comum)
+    d = d.rename(columns={f"{k}_{cand}": k for k in ("votos1", "votos2", "esperado_pp", "z_desvio")})
+    d["uf"] = d["uf"].astype(str)
+    d["pct1"] = d["votos1"] / d["validos1"]
+    d["pct2"] = d["votos2"] / d["validos2"]
+    d["delta_votos"] = d["votos2"] - d["votos1"]
+    d["desvio_pp"] = d["pct2"] - d["esperado_pp"]
+    d["votos_vs_esperado"] = d["votos2"] - d["esperado_pp"] * d["validos2"]
+    for c in d.select_dtypes("float64").columns:
+        d[c] = d[c].astype("float32")
+    return {"mr": d.reset_index(drop=True).copy(), "n_ufs_log": int(d["uf"].nunique()),
+            "n_ufs": 26 + 1, "tem_manual": "z_manual" in d}
 
 
 @st.cache_resource(show_spinner="Preparando o fluxo de votos…", max_entries=2)
@@ -1369,30 +1375,21 @@ with aba_origem:
 # ---------------------------------------------------------------- seções de risco (1º turno) × melhora no 2º
 with aba_risco:
     ano_r = arquivo.stem.split("_")[1]
-    sec_t1 = PASTA / f"secoes_{ano_r}_t1.parquet"
-    logs_t1 = arquivos_logs(sec_t1)
-    if arquivos_turnos(ano_r) is None:
-        st.info("Faltam arquivos para comparar os turnos. Rode `python baixar_dados.py --turno 1`, "
-                "`python baixar_dados.py --turno 2` e `python baixar_votos.py`.")
-    elif not logs_t1:
-        st.info("Faltam os logs das urnas do 1º turno (é deles que saem os três critérios de risco). "
-                "Rode `python baixar_logs.py --turno 1`.")
+    if not arquivo_risco(ano_r).exists():
+        st.info("Esta aba lê um arquivo pré-calculado que ainda não existe. Gere-o (precisa dos logs do 1º turno): "
+                "`python baixar_logs.py --turno 1` e depois `python gerar_resultado_risco.py`.")
     else:
         st.subheader("Seções de risco do 1º turno × desempenho no 2º")
         st.caption("Os critérios de risco vêm dos **logs das urnas do 1º turno** (o TSE ainda não publicou os do 2º). "
-                   "Aqui eles são cruzados com o desempenho do candidato no 2º turno em relação ao seu município.")
-        assin_r = tuple((q.name, q.stat().st_mtime) for q in [sec_t1, *logs_t1, *arquivos_turnos(ano_r).values()])
-        cand_r = st.session_state.get("risco_cand", sorted(candidatos_turnos(ano_r))[0])
-        pacote = carregar_risco(ano_r, cand_r, assin_r, incluir_zz)
-        if pacote["n_ufs_log"] < pacote["n_ufs"]:
-            st.warning(f"Logs do 1º turno carregados para {pacote['n_ufs_log']} de {pacote['n_ufs']} UFs; "
-                       "o cruzamento cobre só essas.")
-        if not pacote["tem_manual"]:
-            st.warning("Logs processados por uma versão antiga, sem dados de digital. "
-                       "Rode `python baixar_logs.py --turno 1 --refazer`.")
+                   "Aqui eles são cruzados com o desempenho do candidato no 2º turno em relação ao seu município. "
+                   "Os dados desta aba são um resultado pré-calculado (exterior fora).")
+        cand_r = st.session_state.get("risco_cand", candidatos_risco(ano_r)[0])
+        pacote = carregar_risco(ano_r, cand_r, (arquivo_risco(ano_r).stat().st_mtime,))
+        if pacote["n_ufs_log"] < 26:
+            st.warning(f"O arquivo pré-calculado cobre {pacote['n_ufs_log']} de 26 UFs.")
 
         c1_, c2_ = st.columns([1, 1])
-        c1_.radio("Candidato", sorted(candidatos_turnos(ano_r)), horizontal=True, key="risco_cand",
+        c1_.radio("Candidato", candidatos_risco(ano_r), horizontal=True, key="risco_cand",
                   format_func=lambda n: NOMES_CURTOS.get(n, str(n)))
         ufs_r = sorted(pacote["mr"]["uf"].unique())
         local_r = c2_.selectbox("Estado", ["Brasil"] + ufs_r, key="risco_uf")
