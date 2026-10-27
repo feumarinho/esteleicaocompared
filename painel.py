@@ -917,8 +917,9 @@ with aba_turnos:
                 "`python baixar_votos.py` (votos de cada candidato por seção, dos boletins de urna).")
     else:
         cands = candidatos_turnos(ano_sel)
-        cand = st.selectbox("Candidato", list(cands), format_func=lambda n: f"{cands[n].title()} ({n})",
-                            key="cand_turnos")
+        NOMES_CURTOS = {13: "Lula", 22: "Flávio"}
+        cand = st.radio("Candidato", list(cands), horizontal=True, key="cand_turnos",
+                        format_func=lambda n: NOMES_CURTOS.get(n, cands[n].title()))
         arqs_t = arquivos_turnos(ano_sel)
         cmp_base = carregar_comparacao(ano_sel, cand, tuple((p.name, p.stat().st_mtime) for p in arqs_t.values()),
                                        incluir_zz)
@@ -958,7 +959,7 @@ with aba_turnos:
                 "nova ou desmembrada, perfil do eleitorado, voto de candidatos eliminados e mobilização local "
                 "explicam a maioria.")
 
-        nome_c = {13: "Lula", 22: "Flávio"}.get(cand, cands[cand].title().split()[0])
+        nome_c = NOMES_CURTOS.get(cand, cands[cand].title().split()[0])
         MEDIDAS = {"z do desvio": ("z_desvio", 4.0, 0.5), "Votos × esperado": ("votos_vs_esperado", 20.0, 10.0),
                    "Variação em votos": ("delta_votos", 50.0, 10.0)}
         k = st.columns(5)
@@ -967,10 +968,11 @@ with aba_turnos:
                                    "mesmo desvio em votos. Variação em votos = votos do 2º turno menos os do 1º, "
                                    "sem comparar com o município.")
         col_t, lim_pad, passo = MEDIDAS[medida_t]
-        modo = k[1].radio("Mostrar", ["Ambos", f"{nome_c}: ganhou mais / foi melhor",
-                                      f"{nome_c}: perdeu mais / foi pior"], key="modo_turnos",
+        modo = k[1].radio("Onde o candidato escolhido…", ["foi melhor que o município (ganhou mais)",
+                                                           "foi pior que o município (perdeu mais)",
+                                                           "nos dois sentidos"], index=2, key="modo_turnos",
                           help="Com dois candidatos no 2º turno, onde um vai melhor o outro vai pior: "
-                               "'perdeu mais' para um é, na prática, 'ganhou mais' para o outro.")
+                               "'foi pior' para um é, na prática, 'foi melhor' para o outro.")
         lim_t = k[2].number_input(f"Mínimo (em valor absoluto) de: {medida_t}", 0.0, 100000.0, lim_pad, passo,
                                   key=f"lim_turnos_{col_t}")
         min_val = k[3].number_input("Mín. votos válidos nos dois turnos", 0, 500, 50, 10, key="minval_turnos")
@@ -980,9 +982,9 @@ with aba_turnos:
 
         ok = (dt["validos1"] >= min_val) & (dt["validos2"] >= min_val)
         alvo = ok & (dt[col_t].abs() >= lim_t) & (dt["votos_vs_esperado"].abs() >= min_vot)
-        if "perdeu" in modo:
+        if "pior" in modo:
             alvo &= dt[col_t] < 0
-        elif "ganhou" in modo:
+        elif "melhor" in modo:
             alvo &= dt[col_t] > 0
 
         # --- por unidade (UF, município, zona ou local)
@@ -1036,13 +1038,13 @@ with aba_turnos:
 
         # --- lista de seções
         sel = dt[alvo]
-        if "perdeu" in modo:
+        if "pior" in modo:
             sel = sel.sort_values(col_t)
-        elif "ganhou" in modo:
+        elif "melhor" in modo:
             sel = sel.sort_values(col_t, ascending=False)
         else:
             sel = sel.reindex(sel[col_t].abs().sort_values(ascending=False).index)
-        st.subheader(f"{len(sel):,} seções".replace(",", ".") + f" · {nome_c}: {medida_t.lower()} ≥ {lim_t:g}")
+        st.subheader(f"{len(sel):,} seções".replace(",", ".") + f" · {nome_c} {modo.split(' (')[0]} · {medida_t.lower()} ≥ {lim_t:g}")
         cols = [c for c in ["uf", "municipio", "zona", "secao", "z_desvio", "votos_vs_esperado", "delta_votos",
                             "pct1", "pct2", "esperado_pp", "desvio_pp", "votos1", "votos2", "validos1", "validos2",
                             "taxa_abst1", "taxa_abst2", "var_abst_pp", "aptos", "nome_local"] if c in sel]
