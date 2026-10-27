@@ -959,9 +959,9 @@ with aba_turnos:
                 "explicam a maioria.")
 
         nome_c = cands[cand].title().split()[0]
-        MEDIDAS = {"z do desvio": ("z_desvio", 3.0, 0.5), "Votos × esperado": ("votos_vs_esperado", 30.0, 10.0),
+        MEDIDAS = {"z do desvio": ("z_desvio", 4.0, 0.5), "Votos × esperado": ("votos_vs_esperado", 20.0, 10.0),
                    "Variação em votos": ("delta_votos", 50.0, 10.0)}
-        k = st.columns(4)
+        k = st.columns(5)
         medida_t = k[0].radio("Filtrar e ordenar por", list(MEDIDAS), key="medida_turnos",
                               help="z = desvio contra o município, corrigido pelo acaso. Votos × esperado = o "
                                    "mesmo desvio em votos. Variação em votos = votos do 2º turno menos os do 1º, "
@@ -974,9 +974,12 @@ with aba_turnos:
         lim_t = k[2].number_input(f"Mínimo (em valor absoluto) de: {medida_t}", 0.0, 100000.0, lim_pad, passo,
                                   key=f"lim_turnos_{col_t}")
         min_val = k[3].number_input("Mín. votos válidos nos dois turnos", 0, 500, 50, 10, key="minval_turnos")
+        min_vot = k[4].number_input("Mín. |votos × esperado|", 0, 1000, 20, 5, key="minvot_turnos",
+                                    help="Além do corte ao lado: ignora desvios que, em votos, são pequenos "
+                                         "(seção pequena com z alto por poucos votos).")
 
         ok = (dt["validos1"] >= min_val) & (dt["validos2"] >= min_val)
-        alvo = ok & (dt[col_t].abs() >= lim_t)
+        alvo = ok & (dt[col_t].abs() >= lim_t) & (dt["votos_vs_esperado"].abs() >= min_vot)
         if "perdeu" in modo:
             alvo &= dt[col_t] < 0
         elif "ganhou" in modo:
@@ -1041,10 +1044,11 @@ with aba_turnos:
         st.subheader(f"{len(sel):,} seções".replace(",", ".") + f" · {nome_c}: {medida_t.lower()} ≥ {lim_t:g}")
         cols = [c for c in ["uf", "municipio", "zona", "secao", "z_desvio", "votos_vs_esperado", "delta_votos",
                             "pct1", "pct2", "esperado_pp", "desvio_pp", "votos1", "votos2", "validos1", "validos2",
-                            "taxa_abst1", "taxa_abst2", "aptos", "nome_local"] if c in sel]
+                            "taxa_abst1", "taxa_abst2", "var_abst_pp", "aptos", "nome_local"] if c in sel]
         st.dataframe(sel[cols], hide_index=True, width="stretch", height=420,
                      column_config={**{c: st.column_config.NumberColumn(format="percent")
-                                       for c in ["pct1", "pct2", "esperado_pp", "desvio_pp", "taxa_abst1", "taxa_abst2"]},
+                                       for c in ["pct1", "pct2", "esperado_pp", "desvio_pp", "taxa_abst1", "taxa_abst2",
+                                                 "var_abst_pp"]},
                                     "z_desvio": st.column_config.NumberColumn("z do desvio", format="%.2f"),
                                     "votos_vs_esperado": st.column_config.NumberColumn("votos × esperado", format="%+.0f"),
                                     "delta_votos": st.column_config.NumberColumn("votos ganhos", format="%+d")})

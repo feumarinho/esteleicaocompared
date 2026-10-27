@@ -353,6 +353,39 @@ def _var_logit(votos, validos):
     return 1 / (votos + 0.5) + 1 / (validos - votos + 0.5)
 
 
+def _ajuste_variancia(r: pd.Series, v: pd.Series, bins: int = 10) -> tuple[float, float]:
+    """(tau², k) tal que Var(resíduo) ≈ tau² + k × v, estimado de forma robusta por faixas de v."""
+    df = pd.DataFrame({"r": r, "v": v}).dropna()
+    if len(df) < 200:
+        return np.nan, np.nan
+    df["faixa"] = pd.qcut(df["v"], min(bins, len(df) // 50), duplicates="drop")
+    g = df.groupby("faixa", observed=True)
+    x = g["v"].median().to_numpy()
+    y = g["r"].apply(lambda s: (1.4826 * (s - s.median()).abs().median()) ** 2).to_numpy()
+    k, tau2 = np.polyfit(x, y, 1)
+    if tau2 < 0:   # sem variação extra: ajusta só a inclinação
+        tau2, k = 0.0, float((x * y).sum() / (x * x).sum())
+    if k < 0:      # tamanho da seção não explica nada: variância constante
+        k, tau2 = 0.0, float(np.median(y))
+    return float(tau2), float(k)
+
+
+def _variancia_calibrada(resid: pd.Series, var_acaso: pd.Series, uf: pd.Series) -> pd.Series:
+    """
+    Variância esperada do resíduo de cada seção: tau² + k × (acaso dos dois turnos).
+    O acaso teórico (var_acaso) trata os dois turnos como independentes, mas são os MESMOS
+    eleitores votando duas vezes, então a variação real da diferença é menor (k < 1). Por isso
+    tau² e k são calibrados com os próprios dados, por UF (nacional se a UF tiver poucas seções),
+    de forma robusta (MAD), para não se deixar levar pelos próprios outliers.
+    """
+    tau_br, k_br = _ajuste_variancia(resid, var_acaso)
+    par = {u: _ajuste_variancia(resid[m], var_acaso[m]) for u, m in
+           ((u, uf == u) for u in uf.dropna().unique())}
+    tau2 = uf.map({u: p[0] if not np.isnan(p[0]) else tau_br for u, p in par.items()}).astype(float)
+    k = uf.map({u: p[1] if not np.isnan(p[1]) else k_br for u, p in par.items()}).astype(float)
+    return tau2 + k * var_acaso.fillna(var_acaso.median())
+
+
 def comparar_turnos(s1: pd.DataFrame, s2: pd.DataFrame, v1: pd.DataFrame, v2: pd.DataFrame,
                     cand: int) -> pd.DataFrame:
     """
@@ -368,8 +401,8 @@ def comparar_turnos(s1: pd.DataFrame, s2: pd.DataFrame, v1: pd.DataFrame, v2: pd
         esperado_pp = pct1 deslocado pela onda do município
         desvio_pp   = pct2 − esperado_pp        (>0: foi melhor que o município; <0: pior)
         votos_vs_esperado = votos2 − esperado × válidos2   (o mesmo desvio, em votos)
-    z_desvio divide o desvio (em logit) pelo acaso dos dois turnos mais a variação natural
-    entre seções da UF (tau², robusta), como no z ajustado da abstenção.
+    z_desvio divide o desvio (em logit) pela variação típica entre turnos de seções do mesmo tamanho
+    na UF (calibrada com os dados, de forma robusta; ver _variancia_calibrada). Escala ~1 = normal.
     """
     col = f"v_{cand}"
     ref = s1[CHAVE_SECAO + [c for c in ["municipio", "local", "nome_local", "endereco_local", "aptos"]
@@ -395,6 +428,7 @@ def comparar_turnos(s1: pd.DataFrame, s2: pd.DataFrame, v1: pd.DataFrame, v2: pd
     d["delta_pp"] = d["pct2"] - d["pct1"]
     d["taxa_abst1"] = 1 - d["comparecimento_log1"] / d["aptos"]
     d["taxa_abst2"] = 1 - d["comparecimento_log2"] / d["aptos2"]
+    d["var_abst_pp"] = d["taxa_abst2"] - d["taxa_abst1"]   # negativo = abstenção caiu
 
     # variação do município (ou da UF) SEM a própria seção, na escala logit (log da razão
     # voto/não-voto): uma seção que já tinha 97% não "estoura" 100% como aconteceria somando pontos.
@@ -423,13 +457,5 @@ def comparar_turnos(s1: pd.DataFrame, s2: pd.DataFrame, v1: pd.DataFrame, v2: pd
     ok = (d["validos1"] >= MIN_VALIDOS_COMPARACAO) & (d["validos2"] >= MIN_VALIDOS_COMPARACAO)
     var_acaso = (var1 + var2).where(ok)
     resid = (l2 - esperado_l).where(ok)
-
-    def _tau2_uf(idx):
-        r = resid.loc[idx].dropna()
-        if len(r) < 20:
-            return 0.0
-        v = (1.4826 * (r - r.median()).abs().median()) ** 2
-        return max(v - float(var_acaso.loc[r.index].median()), 0.0)
-    tau2 = resid.groupby(d["uf"], observed=True).transform(lambda s: _tau2_uf(s.index))
-    d["z_desvio"] = resid / np.sqrt(var_acaso + tau2)
+    d["z_desvio"] = resid / np.sqrt(_variancia_calibrada(resid, var_acaso, d["uf"]))
     return d

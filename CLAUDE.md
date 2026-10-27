@@ -82,7 +82,9 @@ e uma seção "Como ler este painel". Manter esse tom.
 
 - Precisa de `secoes_2026_t1/t2` + `votos_2026_t1/t2` + `candidatos_*`. Os logs do 2º turno **não** são necessários (em 27/10/2026 ainda davam 404 no TSE).
 - Por candidato presente nos dois turnos: votos e % dos votos válidos em cada turno; variação absoluta (`delta_votos`) e em p.p.
-- **Desvio vs município**: onda do município (leave-one-out, UF se < 5 seções) medida em **logit** (evita estourar 100% em seções com 97%); `esperado_pp`, `desvio_pp`, `votos_vs_esperado` (desvio em votos) e `z_desvio` (acaso do logit empírico dos 2 turnos + tau² robusto por UF).
+- **Desvio vs município**: onda do município (leave-one-out, UF se < 5 seções) medida em **logit** (evita estourar 100% em seções com 97%); `esperado_pp`, `desvio_pp`, `votos_vs_esperado` (desvio em votos) e `z_desvio` = desvio em logit ÷ escala **calibrada com os dados** (`_variancia_calibrada`: Var ≈ tau² + k×acaso, robusta/MAD, por UF). Calibrar é necessário porque os dois turnos têm os MESMOS eleitores: somar o acaso como independente deixava o z com desvio padrão 0,5 (escondia anomalias); calibrado, ≈ 1.
+- Controle de abstenção: o desvio quase não se correlaciona com a variação da abstenção da própria seção (|corr| < 0,1), pois o esperado já usa os votos válidos reais do 2º turno. A tabela mostra `var_abst_pp`.
+- Cortes sugeridos para "melhora muito grande": z ≥ 4 e |votos × esperado| ≥ 20 (padrões do painel; Lula ≈ 82 seções, Flávio ≈ 113).
 - Atenção: no 1º turno há vários candidatos e no 2º dois; o valor bruto quase sempre sobe, por isso o que importa é o desvio contra o município.
 
 ## 5. Painel: desempenho (importante para produção)
