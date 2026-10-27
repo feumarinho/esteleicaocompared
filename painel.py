@@ -1001,7 +1001,8 @@ with aba_turnos:
         st.subheader(f"Por {rotulo.replace('municipio', 'município')}")
         st.dataframe(unid.drop(columns=[c for c in ["cd_municipio"] if c in unid and rotulo != "cd_municipio"])
                      .sort_values("variacao_pp"), hide_index=True, width="stretch", height=300,
-                     column_config={**{c: st.column_config.NumberColumn(format="percent") for c in ["pct1", "pct2"]},
+                     column_config={"pct1": st.column_config.NumberColumn("% 1", format="percent"),
+                                    "pct2": st.column_config.NumberColumn("% 2", format="percent"),
                                     "variacao_pp": st.column_config.NumberColumn("variação (p.p.)", format="%+.2f"),
                                     "votos_vs_esperado": st.column_config.NumberColumn("votos × esperado", format="%+.0f"),
                                     "delta_votos": st.column_config.NumberColumn("votos ganhos", format="%+d")})
@@ -1050,12 +1051,14 @@ with aba_turnos:
                             "taxa_abst1", "taxa_abst2", "var_abst_pp", "aptos", "nome_local"] if c in sel]
         st.dataframe(sel[cols], hide_index=True, width="stretch", height=420,
                      column_config={**{c: st.column_config.NumberColumn(format="percent")
-                                       for c in ["pct1", "pct2", "esperado_pp", "desvio_pp", "taxa_abst1", "taxa_abst2",
+                                       for c in ["esperado_pp", "desvio_pp", "taxa_abst1", "taxa_abst2",
                                                  "var_abst_pp"]},
+                                    "pct1": st.column_config.NumberColumn("% 1", format="percent"),
+                                    "pct2": st.column_config.NumberColumn("% 2", format="percent"),
                                     "z_desvio": st.column_config.NumberColumn("z do desvio", format="%.2f"),
                                     "votos_vs_esperado": st.column_config.NumberColumn("votos × esperado", format="%+.0f"),
                                     "delta_votos": st.column_config.NumberColumn("votos ganhos", format="%+d")})
-        st.download_button("⬇️ Baixar lista (CSV)", sel[cols].to_csv(index=False, sep=";", decimal=",")
-                           .encode("utf-8-sig"), f"turnos_{cand}.csv", "text/csv", key="dl_turnos")
+        st.download_button("⬇️ Baixar lista (CSV)", sel[cols].rename(columns={"pct1": "% 1", "pct2": "% 2"})
+                           .to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"), f"turnos_{cand}.csv", "text/csv", key="dl_turnos")
         st.caption("Compare com as outras seções da mesma escola e veja se houve mudança de local ou "
                    "desmembramento de seções entre os turnos. Um desvio isolado em seção pequena é comum.")
