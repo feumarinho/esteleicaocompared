@@ -102,6 +102,10 @@ e uma seção "Como ler este painel". Manter esse tom.
 - Para regenerar: `python baixar_logs.py --turno 1` (≈ 50 GB baixados no total, ~10 MB/s; apagar `dados/logs_brutos_*` depois de cada UF), depois `python gerar_resultado_risco.py`, e commitar o parquet novo (cada versão pesa ~37 MB no histórico do git).
 - Quando os logs do 2º turno saírem, dá para medir se as mesmas seções se repetem como de risco.
 
+### Aviso de abertura
+
+- `painel.py` abre um **diálogo** (`st.dialog`, só fecha no OK, uma vez por visita) dizendo que o site é uma ferramenta, os dados são públicos, as conclusões são de quem as tira, link do código (`REPO_URL`) e créditos ao projeto original (`ORIGINAL_URL` = https://github.com/ralbuque/esteleicao, de Ricardo Albuquerque). Mesmo texto no README. Scripts de teste com navegador precisam clicar em OK antes de qualquer outra coisa.
+
 ## 5. Painel: desempenho (importante para produção)
 
 A base nacional tem ~500 mil seções × ~150 colunas (~300 MB em memória). Já otimizado:

@@ -21,7 +21,7 @@ PASTA = Path(__file__).parent / "dados"
 RESULTADOS = Path(__file__).parent / "resultados"   # resultados pré-calculados, versionados no git
 REPO_URL = "https://github.com/feumarinho/esteleicaocompared"
 ORIGINAL_AUTOR = "Ricardo Albuquerque"
-ORIGINAL_URL = ""   # endereço do repositório de onde este projeto foi derivado (fork); vazio = só o nome
+ORIGINAL_URL = "https://github.com/ralbuque/esteleicao"   # repositório de onde este projeto foi derivado (fork)
 COR_ALTA, COR_BAIXA, COR_NORMAL = "#d6453d", "#2f6fb5", "#9aa4b1"
 TODOS = "— Todos —"
 NOMES_CURTOS = {13: "Lula", 22: "Flávio", 70: "Cury", 14: "Renan", 55: "Caiado", 30: "Zema"}
@@ -322,14 +322,29 @@ def sinalizar(d: pd.DataFrame) -> pd.DataFrame:
 df = sinalizar(df)
 
 # ---------------------------------------------------------------- aviso de abertura
-_orig = f"[{ORIGINAL_AUTOR}]({ORIGINAL_URL})" if ORIGINAL_URL else f"**{ORIGINAL_AUTOR}**"
-st.info(
-    "**Aviso.** Este site é uma **ferramenta**. Os dados são **públicos** (TSE). As conclusões tiradas deles "
-    "são de quem as tira: **não temos nenhuma relação com elas**. O código está em "
-    f"[{REPO_URL.removeprefix('https://')}]({REPO_URL}). Se tiver dúvida de como os cálculos são feitos, peça à sua "
-    "IA para ler o código e explicar.\n\n"
-    f"Créditos: este projeto é derivado (fork) do projeto original de {_orig}, que criou a base do painel "
-    "(abstenção, logs das urnas e critérios de seções atípicas).", icon="ℹ️")
+def _opcoes_dialogo() -> dict:
+    """`dismissible=False` (só o OK fecha) existe nas versões novas do Streamlit; nas antigas, ignora."""
+    import inspect
+    return {"dismissible": False} if "dismissible" in inspect.signature(st.dialog).parameters else {}
+
+
+@st.dialog("Aviso", **_opcoes_dialogo())
+def aviso_abertura():
+    orig = f"[{ORIGINAL_AUTOR}]({ORIGINAL_URL})" if ORIGINAL_URL else f"**{ORIGINAL_AUTOR}**"
+    st.markdown(
+        "Este site é uma **ferramenta**. Os dados são **públicos** (TSE). As conclusões tiradas deles "
+        "são de quem as tira: **não temos nenhuma relação com elas**.\n\n"
+        f"O código está em [{REPO_URL.removeprefix('https://')}]({REPO_URL}). Se tiver dúvida de como os "
+        "cálculos são feitos, peça à sua IA para ler o código e explicar.\n\n"
+        f"Créditos: este projeto é derivado (fork) de [{ORIGINAL_URL.removeprefix('https://')}]({ORIGINAL_URL}), "
+        f"de {orig}, que criou a base do painel (abstenção, logs das urnas e critérios de seções atípicas).")
+    if st.button("OK", type="primary", width="stretch"):
+        st.rerun()
+
+
+if not st.session_state.get("aviso_visto"):
+    st.session_state["aviso_visto"] = True   # aparece uma vez por visita
+    aviso_abertura()
 
 # ---------------------------------------------------------------- cabeçalho
 nivel = ("Brasil" if uf == TODOS else uf if mun == TODOS else

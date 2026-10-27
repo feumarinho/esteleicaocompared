@@ -236,6 +236,6 @@ peça à sua IA para ler o código (`analise.py`, `painel.py`) e explicar.
 
 Código: https://github.com/feumarinho/esteleicaocompared
 
-Créditos: derivado (fork) do projeto original de **Ricardo Albuquerque**, que criou a base do painel
+Créditos: derivado (fork) de https://github.com/ralbuque/esteleicao, de **Ricardo Albuquerque**, que criou a base do painel
 (abstenção por seção, logs das urnas e critérios de seções atípicas). Este fork acrescenta a comparação 1º × 2º turno,
 o fluxo de votos e o cruzamento de seções de risco com o desempenho do 2º turno.
