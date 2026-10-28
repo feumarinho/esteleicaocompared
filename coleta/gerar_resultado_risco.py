@@ -5,8 +5,8 @@ em relação ao município. O painel lê este arquivo; em produção não é pre
 de `dados/` para esta aba.
 
 Uso (precisa dos dados em dados/: secoes_*_t1/t2, votos_*_t1/t2, logs_*_t1_<UF>):
-    python gerar_resultado_risco.py
-    python gerar_resultado_risco.py --ano 2026
+    python coleta/gerar_resultado_risco.py
+    python coleta/gerar_resultado_risco.py --ano 2026
 
 Resultado: resultados/risco_<ano>.parquet  (este arquivo VAI para o git)
 """
@@ -14,13 +14,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-from analise import CHAVE_SECAO, candidatos_comuns, comparar_turnos, juntar_horario, pontuar_secoes
+RAIZ = Path(__file__).resolve().parent.parent  # raiz do projeto (este script fica em coleta/)
+sys.path.insert(0, str(RAIZ))  # permite `from analise import ...` rodando o script direto
+from analise import CHAVE_SECAO, candidatos_comuns, comparar_turnos, juntar_horario, pontuar_secoes  # noqa: E402
 
-RAIZ = Path(__file__).parent
 PASTA, SAIDA = RAIZ / "dados", RAIZ / "resultados"
 # métricas do log do 1º turno usadas pelos três critérios (mantê-las alinhadas a analise.marcar_criterios)
 COLS_LOG = ["aptos", "taxa_abstencao", "z_ajustado", "z_binomial", "z_simples", "pct_apos_17", "votos_apos_17",
@@ -37,7 +39,7 @@ def main():
     v1, v2 = (pd.read_parquet(PASTA / f"votos_{ano}_t{t}.parquet") for t in (1, 2))
     arqs = sorted(PASTA.glob(f"logs_{ano}_t1_*.parquet"))
     if not arqs:
-        raise SystemExit("Sem logs do 1º turno em dados/. Rode:  python baixar_logs.py --turno 1")
+        raise SystemExit("Sem logs do 1º turno em dados/. Rode:  python coleta/baixar_logs.py --turno 1")
     s1, s2 = s1[s1["uf"].astype(str) != "ZZ"], s2[s2["uf"].astype(str) != "ZZ"]
     print(f"{len(arqs)} UFs com log do 1º turno")
 

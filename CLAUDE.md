@@ -26,22 +26,41 @@ e uma seção "Como ler este painel". Manter esse tom.
 
 ## 2. Arquivos
 
-| Arquivo | Função |
+Estrutura (reorganizada em pastas):
+
+```
+painel.py            entrada do Streamlit: aviso, filtros, st.navigation com as páginas agrupadas
+app/                 interface
+  contexto.py          dados + filtros da barra lateral (montar_contexto)
+  comum.py             carregadores com cache, formatação, constantes
+  cabecalho.py, detalhe.py, aviso.py, dados_integridade.py
+  paginas/<grupo>/<página>.py   cada tela, com render(ctx)
+    resultado/   comparar, distribuicao, funil
+    risco/       sinalizadas, horario, sem_digital, cruzamento
+    turnos/      comparar_turnos, fluxo, origem_votos, risco_melhora
+    integridade/ resumo, conciliacao, software, forense, persistencia
+    historico/   referencia
+analise/             estatística (sem Streamlit)
+  abstencao, horario, turnos, fluxo, risco, integridade, logs_urna (log da urna), leitores_urna (BU, RDV, log completo)
+coleta/              scripts de download/geração (rodar da raiz: python coleta/<script>.py)
+dados/  resultados/  parquets processados (vão no git)
+deploy/              publicação no Windows
+```
+
+| Script (coleta/) | Função |
 |---|---|
-| `baixar_dados.py` | Baixa "Detalhe da apuração por seção eleitoral" (CDN do TSE) → `dados/secoes_<ano>_t<turno>.parquet` (aptos, comparecimento, abstenção por seção). |
-| `baixar_logs.py` | Baixa os logs das urnas por UF e gera `dados/logs_<ano>_t<turno>_<UF>.parquet` (métricas por seção). |
-| `download_tse.py` | Downloads resilientes: modo padrão baixa **só os logs** de dentro do zip remoto via HTTP Range (lê o diretório central do zip, 8 conexões, retomável, grava em `dados/logs_brutos_<ano>_<turno>t_<UF>.zip`); plano B `--completo` baixa o zip inteiro com retomada. |
-| `logs_urna.py` | Parser do log da urna (`logd.dat`) e cálculo de métricas por seção. |
-| `baixar_votos.py` | Baixa "Votação por seção eleitoral" (arquivo `votacao_secao_2026_BR.zip`, Presidente, 1º e 2º turno) → `dados/votos_<ano>_t<turno>.parquet` (colunas `v_<nº do candidato>`, `v_95` branco, `v_96` nulo) e `dados/candidatos_<ano>_t<turno>.json`. Votos batem 100% com o comparecimento oficial. |
-| `gerar_resultado_risco.py` | Gera `resultados/risco_<ano>.parquet` (estático, vai no git): métricas dos 3 critérios de risco (logs do 1º turno) + desempenho dos candidatos no 2º turno por seção. Lido pela aba 🎯. |
-| `analise.py` | Estatística: z da abstenção, z de proporções (sem digital, manual, após 17h), z do horário, sinais, correção de fuso. |
-| `painel.py` | Painel Streamlit. |
-| `gerar_dados_teste.py` | Gera dados sintéticos com anomalias plantadas (ano 1999) para testes. |
-| `deploy/instalar_servico_windows.ps1` | Cria `.venv`, instala requirements, registra o serviço `esteleicao` no NSSM. |
-| `deploy/Caddyfile.est` | Bloco do Caddy para `esteleicao.com` → `127.0.0.1:8503`. |
-| `deploy/diagnosticar_caddy.ps1` | Diagnóstico do HTTPS no Caddy (acha serviço, valida config, reinicia, lê log, testa). |
-| `deploy/empacotar.py` | Gera `pacote_servidor.zip` (código + `dados/*.parquet`) no Mac. |
-| `deploy/LEIAME_WINDOWS.md` | Passo a passo de publicação no Windows. |
+| `baixar_dados.py` | Baixa "Detalhe da apuração por seção eleitoral" → `dados/secoes_<ano>_t<turno>.parquet`. |
+| `baixar_logs.py` | Logs das urnas por UF (1º turno) → `dados/logs_<ano>_t<turno>_<UF>.parquet`. |
+| `baixar_turno2.py` | **2º turno**: lê por faixas (HTTP Range), SEM gravar os zips de 124 GB, o boletim (BU), o RDV e o log de cada seção → `dados/logs_2026_t2_<UF>.parquet` + `dados/integ_2026_t2_<UF>.parquet` (ambos VÃO no git, ~30 MB no total: outra máquina com `git clone` não precisa baixar nada dos 124 GB do TSE; o script pula UFs já processadas). Conferências cruzadas BU×RDV×log embutidas. |
+| `download_tse.py` | Downloads resilientes (HTTP Range, retomável). |
+| `baixar_votos.py` | "Votação por seção" (Presidente) → `dados/votos_<ano>_t<turno>.parquet` e `candidatos_*.json`. |
+| `gerar_resultado_risco.py` | `resultados/risco_<ano>.parquet` (critérios de risco do 1º turno + desempenho no 2º). |
+| `gerar_integridade.py` | `resultados/integridade_<ano>.parquet|json`: conciliação, efeito do software dentro do município, testes de dígitos, impressão participação×voto, persistência do risco. Lido pelas páginas de Integridade. |
+| `gerar_dados_teste.py` | Dados sintéticos com anomalias plantadas (ano 1999). |
+| `deploy/empacotar.py` | `pacote_servidor.zip` (código + dados) no Mac. |
+| `deploy/instalar_servico_windows.ps1`, `Caddyfile.est`, `diagnosticar_caddy.ps1`, `LEIAME_WINDOWS.md` | Publicação no Windows. |
+
+**Aviso:** o log do 2º turno é CUMULATIVO (traz também o dia do 1º turno, 04/10): `resumir_log`/`ler_eventos` recebem o dia da eleição explicitamente (`DIAS_ELEICAO`). O TSE publicou BU/RDV/logs do 2º turno em 28/10/2026 (zips por UF, 124 GB no total).
 
 `logs/`, `.venv/`, `pacote_servidor.zip` e os arquivos **brutos** de `dados/` (`*.zip`, `logs_brutos_*`, `*1999*`) estão no `.gitignore`. Os `.parquet`/`.json` **processados** de `dados/` (≈ 71 MB, comprimidos com zstd) e de `resultados/` (34 MB) **vão no git**, para o app rodar logo após o `git clone`, sem baixar nada do TSE.
 
@@ -81,7 +100,7 @@ e uma seção "Como ler este painel". Manter esse tom.
 
 ### Comparação 1º × 2º turno (aba 🔁, `analise.comparar_turnos`)
 
-- Precisa de `secoes_2026_t1/t2` + `votos_2026_t1/t2` + `candidatos_*`. Os logs do 2º turno **não** são necessários (em 27/10/2026 ainda davam 404 no TSE).
+- Precisa de `secoes_2026_t1/t2` + `votos_2026_t1/t2` + `candidatos_*`. Os logs do 2º turno **não** são necessários para esta aba (publicados em 28/10/2026; usados na área Integridade).
 - Por candidato presente nos dois turnos: votos e % dos votos válidos em cada turno; variação absoluta (`delta_votos`) e em p.p.
 - **Desvio vs município**: onda do município (leave-one-out, UF se < 5 seções) medida em **logit** (evita estourar 100% em seções com 97%); `esperado_pp`, `desvio_pp`, `votos_vs_esperado` (desvio em votos) e `z_desvio` = desvio em logit ÷ escala **calibrada com os dados** (`_variancia_calibrada`: Var ≈ tau² + k×acaso, robusta/MAD, por UF). Calibrar é necessário porque os dois turnos têm os MESMOS eleitores: somar o acaso como independente deixava o z com desvio padrão 0,5 (escondia anomalias); calibrado, ≈ 1.
 - Controle de abstenção: o desvio quase não se correlaciona com a variação da abstenção da própria seção (|corr| < 0,1), pois o esperado já usa os votos válidos reais do 2º turno. A tabela mostra `var_abst_pp`.
@@ -97,10 +116,19 @@ e uma seção "Como ler este painel". Manter esse tom.
 
 ### Risco do 1º turno × melhora no 2º (aba 🎯, `analise.marcar_criterios` / `resumo_cruzamento`)
 
-- Cruza as seções marcadas pelos 3 critérios (calculados com os **logs do 1º turno**; o TSE ainda não publicou os do 2º) com o desempenho do candidato no 2º turno vs município (`z_desvio`, `votos × esperado`). Os critérios continuam ajustáveis na aba (mesma regra do painel original, função `marcar_criterios`).
-- **Dados estáticos no git**: a aba lê `resultados/risco_<ano>.parquet` (+ `.json` com UFs e candidatos), gerado por `python gerar_resultado_risco.py` a partir de `dados/` (secoes t1/t2, votos t1/t2, logs t1). Em produção não baixa logs nem precisa de `dados/` para esta aba. Exterior (ZZ) fora; seções com < 30 votos válidos num dos turnos fora.
-- Para regenerar: `python baixar_logs.py --turno 1` (≈ 50 GB baixados no total, ~10 MB/s; apagar `dados/logs_brutos_*` depois de cada UF), depois `python gerar_resultado_risco.py`, e commitar o parquet novo (cada versão pesa ~37 MB no histórico do git).
-- Quando os logs do 2º turno saírem, dá para medir se as mesmas seções se repetem como de risco.
+- Cruza as seções marcadas pelos 3 critérios (calculados com os **logs do 1º turno**; os do 2º turno entram na página Integridade → Persistência) com o desempenho do candidato no 2º turno vs município (`z_desvio`, `votos × esperado`). Os critérios continuam ajustáveis na aba (mesma regra do painel original, função `marcar_criterios`).
+- **Dados estáticos no git**: a aba lê `resultados/risco_<ano>.parquet` (+ `.json` com UFs e candidatos), gerado por `python coleta/gerar_resultado_risco.py` a partir de `dados/` (secoes t1/t2, votos t1/t2, logs t1). Em produção não baixa logs nem precisa de `dados/` para esta aba. Exterior (ZZ) fora; seções com < 30 votos válidos num dos turnos fora.
+- Para regenerar: `python coleta/baixar_logs.py --turno 1` (≈ 50 GB baixados no total, ~10 MB/s; apagar `dados/logs_brutos_*` depois de cada UF), depois `python coleta/gerar_resultado_risco.py`, e commitar o parquet novo (cada versão pesa ~37 MB no histórico do git).
+- Os logs do 2º turno já estão lidos (27 UFs): ver Integridade → Persistência do risco.
+
+### Integridade das urnas (grupo "Integridade das urnas"; `coleta/gerar_integridade.py`, `analise/integridade.py`)
+
+- Fonte: BU + RDV + log de cada seção do 2º turno (497.896 seções, 27 UFs), lidos por `coleta/baixar_turno2.py` (sem gravar os 124 GB). `dados/integ_2026_t2_<UF>.parquet` e `logs_2026_t2_<UF>.parquet` vão no git; a leitura tem ponto de retomada por bloco (`dados/parcial_*.pkl`, ignorado) e pula UFs prontas.
+- **Conciliação (28/10/2026):** BU = RDV, BU = soma do comparecimento e BU = resultado oficial em **100%** das seções; log ≠ BU em 1.432 (0,29%: perda de linhas/urna trocada); confirmações ≠ votos em 631. Obs.: em MT há uma consulta sim/não (cargo 6288/6289) em 4 municípios; o leitor soma números repetidos e compara só totais para cargos que não são presidente.
+- **Software dentro do município** (`efeito_dentro_municipio`, erro-padrão agrupado por município; grupos: modelo, versão, UEFI, data da carga, erros, ritmo, desligamentos, suspensos, abertura, encerramento): 245 comparações, 51 com |z|>2 (esperado ~12), 15 com |z|>3, mas só 2 com tamanho relevante (carga de 17/09: Lula −0,10 DP, −0,3 p.p., em 28 municípios; sentido contrário ao de favorecimento). Um único software (10.23.0.0) em todas as urnas. Computador gerador da mídia foi descartado (equivale à zona).
+- **Dígitos finais** (esperado = média dos 20 valores vizinhos; sem isso o teste dá falso positivo em totais pequenos): nenhum p<0,01 em 27 UFs × 2 candidatos. **Participação × voto:** correlação dentro do município entre −0,2 e +0,2; maiores em RR (0,21), PI (0,15), CE (0,11).
+- **Persistência:** abstenção baixa repete (57% vs 0,1%) e liberação manual repete (46% vs 0,8%): características estáveis; voto após 17h não repete (reflete o dia).
+- **Limites:** todos os arquivos vêm da própria urna; software alterado que altere os 3 registros de forma coerente não é detectável aqui (precisa de auditoria do código/assinatura); o hash por linha do log não é verificável com dados públicos.
 
 ### Aviso de abertura
 
@@ -156,8 +184,8 @@ A base nacional tem ~500 mil seções × ~150 colunas (~300 MB em memória). Já
 
 - Atualizar dados/código no servidor: `git pull` em `C:\git\esteleicao` e `nssm restart esteleicao`. (Alternativa sem git: no Mac `python deploy/empacotar.py`; copiar o zip para `C:\git\`; `Expand-Archive C:\git\pacote_servidor.zip -DestinationPath C:\git -Force`.)
 - Regenerar dados: rodar os scripts `baixar_*.py` (os logs brutos somam ≈ 50 GB de download), recomprimir os parquets com zstd (`pyarrow.parquet.write_table(..., compression="zstd", compression_level=9)`) e commitar `dados/` e `resultados/`. Cada versão nova pesa ≈ 100 MB no histórico do git: gere uma só.
-- 2º turno (25/10/2026): `python baixar_dados.py --turno 2` e `python baixar_logs.py --turno 2` no Mac, quando o TSE publicar.
-- Testes sem internet: `python gerar_dados_teste.py`, depois `baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip` e `baixar_logs.py --zip` para cada `dados/teste_arqurna_*.zip`.
+- 2º turno (25/10/2026): `python coleta/baixar_dados.py --turno 2` e `python coleta/baixar_logs.py --turno 2` no Mac, quando o TSE publicar.
+- Testes sem internet: `python coleta/gerar_dados_teste.py`, depois `python coleta/baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip` e `baixar_logs.py --zip` para cada `dados/teste_arqurna_*.zip`.
 
 ## 9. Preferências e cuidados
 

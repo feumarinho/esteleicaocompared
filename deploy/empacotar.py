@@ -11,8 +11,10 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 SAIDA = RAIZ / "pacote_servidor.zip"
 
+PACOTES_DE_CODIGO = ["analise", "coleta", "app"]   # pastas de código (a pasta app/ surge na reorganização do painel)
 arquivos = [
     *RAIZ.glob("*.py"),
+    *(f for pasta in PACOTES_DE_CODIGO for f in (RAIZ / pasta).rglob("*.py") if "__pycache__" not in f.parts),
     RAIZ / "requirements.txt",
     RAIZ / "README.md",
     *(RAIZ / "deploy").glob("*.ps1"),
@@ -22,11 +24,13 @@ arquivos = [
     *(RAIZ / "dados").glob("logs_*.parquet"),
     *(RAIZ / "dados").glob("votos_*.parquet"),
     *(RAIZ / "dados").glob("candidatos_*.json"),
-    *(RAIZ / "resultados").glob("risco_*"),
+    *(RAIZ / "dados").glob("integ_*.parquet"),
+    *(RAIZ / "resultados").glob("*.parquet"),
+    *(RAIZ / "resultados").glob("*.json"),
 ]
 arquivos = [a for a in arquivos if a.exists() and not a.name.startswith(("teste_", "logs_brutos"))]
 if not any(a.name.startswith("secoes_") for a in arquivos):
-    raise SystemExit("Nenhum dados/secoes_*.parquet encontrado. Rode antes: python baixar_dados.py")
+    raise SystemExit("Nenhum dados/secoes_*.parquet encontrado. Rode antes: python coleta/baixar_dados.py")
 
 with zipfile.ZipFile(SAIDA, "w", zipfile.ZIP_DEFLATED) as z:
     for a in sorted(arquivos):

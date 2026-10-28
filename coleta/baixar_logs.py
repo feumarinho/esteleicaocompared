@@ -8,11 +8,11 @@ por padrão, o script baixa SÓ os logs de dentro do zip (cerca de metade do
 tamanho), em várias conexões, com novas tentativas automáticas. Se cair ou for
 interrompido, rode de novo: ele continua de onde parou.
 
-    python baixar_logs.py --ufs AC
-    python baixar_logs.py --ufs CE BA
-    python baixar_logs.py --ufs BA --conexoes 4
-    python baixar_logs.py --ufs CE --completo
-    python baixar_logs.py --zip ~/Downloads/bu_imgbu_logjez_rdv_vscmr_2026_1t_CE.zip
+    python coleta/baixar_logs.py --ufs AC
+    python coleta/baixar_logs.py --ufs CE BA
+    python coleta/baixar_logs.py --ufs BA --conexoes 4
+    python coleta/baixar_logs.py --ufs CE --completo
+    python coleta/baixar_logs.py --zip ~/Downloads/bu_imgbu_logjez_rdv_vscmr_2026_1t_CE.zip
 
 --conexoes   número de downloads simultâneos (padrão 8; reduza se der muitos erros)
 --completo   baixa o zip inteiro em vez de só os logs (retoma sozinho se cair)
@@ -36,14 +36,16 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from download_tse import SemDownloadParcial, baixar_completo, baixar_so_logs
-from logs_urna import ABERTURA, EXT_LOG, estimar_fuso, metricas, processar_logjez
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # raiz do projeto: permite `from analise...`
+from analise.logs_urna import EXT_LOG, consolidar_secoes, processar_logjez  # noqa: E402
+from download_tse import SemDownloadParcial, baixar_completo, baixar_so_logs  # noqa: E402
 
 URL = ("https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{ano}/arqurnatot/"
        "bu_imgbu_logjez_rdv_vscmr_{ano}_{turno}t_{uf}.zip")
 UFS = ["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA",
        "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO", "ZZ"]
-PASTA = Path(__file__).parent / "dados"
+PASTA = Path(__file__).resolve().parent.parent / "dados"
 
 
 # ------------------------------------------------------------------ leitura do zip
@@ -112,31 +114,8 @@ def processar_zip(caminho: Path, uf: str, processos: int) -> pd.DataFrame:
     for nome, erro in erros[:10]:
         print(f"    ! {nome}: {erro}")
 
-    # fuso de cada seção e harmonização pelo fuso mais comum do município
-    linhas = []
-    for (mun, zona, secao), logs in por_secao.items():
-        votos = np.concatenate([l["votos_s"] for l in logs])
-        hab = np.concatenate([l["hab"] for l in logs])
-        ordem = np.argsort(votos, kind="stable")
-        votos, hab = votos[ordem], hab[ordem]
-        aberturas = [l["abertura_s"] for l in logs if l["abertura_s"] is not None]
-        abertura = min(aberturas) if aberturas else None
-        linhas.append({"cd_municipio": mun, "zona": zona, "secao": secao,
-                       "_votos": votos, "_hab": hab, "_abertura": abertura,
-                       "_fuso": estimar_fuso(abertura, int(votos[0]) if len(votos) else None, uf),
-                       "n_logs": len(logs), "n_urnas": len(set().union(*[l["urnas"] for l in logs])),
-                       "dia": next((l["dia"] for l in logs if l["dia"]), None)})
-    fuso_mun = defaultdict(Counter)
-    for l in linhas:
-        fuso_mun[l["cd_municipio"]][l["_fuso"]] += 1
-    saida = []
-    for l in linhas:
-        fuso = fuso_mun[l["cd_municipio"]].most_common(1)[0][0]
-        m = metricas(l["_votos"], l["_hab"], fuso)
-        m["abertura"] = (l["_abertura"] / 3600 - fuso) if l["_abertura"] is not None else np.nan
-        m["abertura_atrasada_min"] = max(0.0, (m["abertura"] - ABERTURA) * 60) if l["_abertura"] else np.nan
-        saida.append({"uf": uf, **{k: v for k, v in l.items() if not k.startswith("_")}, **m})
-    if not saida:
+    df = consolidar_secoes(por_secao, uf)
+    if df.empty:
         with zipfile.ZipFile(caminho) as zf:
             exemplos = [i.filename for i in zf.infolist()][:8]
         print("  ! nenhum log de urna reconhecido neste zip. Primeiros arquivos encontrados:")
@@ -144,9 +123,6 @@ def processar_zip(caminho: Path, uf: str, processos: int) -> pd.DataFrame:
             print(f"      {n}")
         print("    O formato pode ter mudado; envie esta lista para ajustar o script.")
         return pd.DataFrame()
-    df = pd.DataFrame(saida)
-    hcols = [f"{p}{h:02d}" for p in "hsm" for h in range(24)]
-    df[hcols] = df[hcols].astype("int16")
     return df
 
 

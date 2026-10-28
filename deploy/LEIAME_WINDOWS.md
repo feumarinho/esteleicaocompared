@@ -88,8 +88,8 @@ Get-Content C:\git\esteleicao\logs\servico.log -Tail 50
 Use sempre o Python do `.venv` (criado no passo 3):
 
 ```powershell
-C:\git\esteleicao\.venv\Scripts\python.exe baixar_dados.py
-C:\git\esteleicao\.venv\Scripts\python.exe baixar_logs.py
+C:\git\esteleicao\.venv\Scripts\python.exe coleta\baixar_dados.py
+C:\git\esteleicao\.venv\Scripts\python.exe coleta\baixar_logs.py
 ```
 
 ## Problemas comuns

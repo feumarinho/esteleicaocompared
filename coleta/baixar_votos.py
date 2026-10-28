@@ -4,9 +4,9 @@ em cada seção, vindos dos boletins de urna) e gera, por turno, um arquivo comp
 (Parquet) com uma linha por seção e uma coluna por candidato à Presidência.
 
 Uso:
-    python baixar_votos.py                      # 2026, os dois turnos
-    python baixar_votos.py --turno 2            # só o 2º turno
-    python baixar_votos.py --zip caminho/votacao_secao_2026_BR.zip   # se já baixou o zip
+    python coleta/baixar_votos.py                      # 2026, os dois turnos
+    python coleta/baixar_votos.py --turno 2            # só o 2º turno
+    python coleta/baixar_votos.py --zip caminho/votacao_secao_2026_BR.zip   # se já baixou o zip
 
 Resultado:
     dados/votos_2026_t1.parquet   colunas: uf, cd_municipio, zona, secao, v_<número>...
@@ -32,7 +32,7 @@ import pandas as pd
 from download_tse import baixar_completo
 
 URL = "https://cdn.tse.jus.br/estatistica/sead/odsele/votacao_secao/votacao_secao_{ano}_BR.zip"
-PASTA = Path(__file__).parent / "dados"
+PASTA = Path(__file__).resolve().parent.parent / "dados"
 COLUNAS = ["NR_TURNO", "SG_UF", "CD_MUNICIPIO", "NR_ZONA", "NR_SECAO", "CD_CARGO",
            "NR_VOTAVEL", "NM_VOTAVEL", "QT_VOTOS"]
 CHAVE = ["uf", "cd_municipio", "zona", "secao"]

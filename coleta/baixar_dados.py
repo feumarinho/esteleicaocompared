@@ -4,10 +4,10 @@ e gera um arquivo compacto (Parquet) com aptos, comparecimento e abstenção
 por seção eleitoral.
 
 Uso:
-    python baixar_dados.py                 # 2026, 1º turno
-    python baixar_dados.py --turno 2       # 2º turno (quando publicado)
-    python baixar_dados.py --ano 2022      # outra eleição, para comparar
-    python baixar_dados.py --zip caminho/detalhe_votacao_secao_2026.zip   # se já baixou o zip
+    python coleta/baixar_dados.py                 # 2026, 1º turno
+    python coleta/baixar_dados.py --turno 2       # 2º turno (quando publicado)
+    python coleta/baixar_dados.py --ano 2022      # outra eleição, para comparar
+    python coleta/baixar_dados.py --zip caminho/detalhe_votacao_secao_2026.zip   # se já baixou o zip
 
 Fonte: https://dadosabertos.tse.jus.br/dataset/resultados-2026
 """
@@ -21,7 +21,7 @@ import pandas as pd
 import requests
 
 URL = "https://cdn.tse.jus.br/estatistica/sead/odsele/detalhe_votacao_secao/detalhe_votacao_secao_{ano}.zip"
-PASTA = Path(__file__).parent / "dados"
+PASTA = Path(__file__).resolve().parent.parent / "dados"
 
 # Colunas que usamos. As marcadas como opcionais podem não existir em todos os anos.
 OBRIGATORIAS = ["NR_TURNO", "SG_UF", "CD_MUNICIPIO", "NM_MUNICIPIO", "NR_ZONA", "NR_SECAO",

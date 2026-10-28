@@ -14,9 +14,9 @@ Inclui seções anômalas plantadas de propósito:
     cadastrada foram liberados pelo mesário, incluindo 12 seguidos;
   - escolas inteiras com muitos eleitores sem digital cadastrada (legítimo).
 
-    python gerar_dados_teste.py
-    python baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip
-    for f in dados/teste_arqurna_*.zip; do python baixar_logs.py --zip $f; done
+    python coleta/gerar_dados_teste.py
+    python coleta/baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip
+    for f in dados/teste_arqurna_*.zip; do python coleta/baixar_logs.py --zip $f; done
     streamlit run painel.py
 """
 import io
@@ -30,7 +30,7 @@ import pandas as pd
 import py7zr
 
 rng = np.random.default_rng(42)
-PASTA = Path(__file__).parent / "dados"
+PASTA = Path(__file__).resolve().parent.parent / "dados"
 UFS = {"SP": 0.225, "CE": 0.153, "MG": 0.226, "MS": 0.238, "RJ": 0.233}
 FUSO = {"MS": -1}  # urnas do MS marcam 1h a menos (abrem às 7h locais)
 CARGOS = [(1, "Presidente"), (3, "Governador"), (6, "Deputado Federal")]
