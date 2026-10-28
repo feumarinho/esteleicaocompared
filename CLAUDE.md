@@ -119,7 +119,16 @@ deploy/              publicação no Windows
 - Cruza as seções marcadas pelos 3 critérios (calculados com os **logs do 1º turno**; os do 2º turno entram na página Integridade → Persistência) com o desempenho do candidato no 2º turno vs município (`z_desvio`, `votos × esperado`). Os critérios continuam ajustáveis na aba (mesma regra do painel original, função `marcar_criterios`).
 - **Dados estáticos no git**: a aba lê `resultados/risco_<ano>.parquet` (+ `.json` com UFs e candidatos), gerado por `python coleta/gerar_resultado_risco.py` a partir de `dados/` (secoes t1/t2, votos t1/t2, logs t1). Em produção não baixa logs nem precisa de `dados/` para esta aba. Exterior (ZZ) fora; seções com < 30 votos válidos num dos turnos fora.
 - Para regenerar: `python coleta/baixar_logs.py --turno 1` (≈ 50 GB baixados no total, ~10 MB/s; apagar `dados/logs_brutos_*` depois de cada UF), depois `python coleta/gerar_resultado_risco.py`, e commitar o parquet novo (cada versão pesa ~37 MB no histórico do git).
-- Quando os logs do 2º turno saírem, dá para medir se as mesmas seções se repetem como de risco.
+- Os logs do 2º turno já estão lidos (27 UFs): ver Integridade → Persistência do risco.
+
+### Integridade das urnas (grupo "Integridade das urnas"; `coleta/gerar_integridade.py`, `analise/integridade.py`)
+
+- Fonte: BU + RDV + log de cada seção do 2º turno (497.896 seções, 27 UFs), lidos por `coleta/baixar_turno2.py` (sem gravar os 124 GB). `dados/integ_2026_t2_<UF>.parquet` e `logs_2026_t2_<UF>.parquet` vão no git; a leitura tem ponto de retomada por bloco (`dados/parcial_*.pkl`, ignorado) e pula UFs prontas.
+- **Conciliação (28/10/2026):** BU = RDV, BU = soma do comparecimento e BU = resultado oficial em **100%** das seções; log ≠ BU em 1.432 (0,29%: perda de linhas/urna trocada); confirmações ≠ votos em 631. Obs.: em MT há uma consulta sim/não (cargo 6288/6289) em 4 municípios; o leitor soma números repetidos e compara só totais para cargos que não são presidente.
+- **Software dentro do município** (`efeito_dentro_municipio`, erro-padrão agrupado por município; grupos: modelo, versão, UEFI, data da carga, erros, ritmo, desligamentos, suspensos, abertura, encerramento): 245 comparações, 51 com |z|>2 (esperado ~12), 15 com |z|>3, mas só 2 com tamanho relevante (carga de 17/09: Lula −0,10 DP, −0,3 p.p., em 28 municípios; sentido contrário ao de favorecimento). Um único software (10.23.0.0) em todas as urnas. Computador gerador da mídia foi descartado (equivale à zona).
+- **Dígitos finais** (esperado = média dos 20 valores vizinhos; sem isso o teste dá falso positivo em totais pequenos): nenhum p<0,01 em 27 UFs × 2 candidatos. **Participação × voto:** correlação dentro do município entre −0,2 e +0,2; maiores em RR (0,21), PI (0,15), CE (0,11).
+- **Persistência:** abstenção baixa repete (57% vs 0,1%) e liberação manual repete (46% vs 0,8%): características estáveis; voto após 17h não repete (reflete o dia).
+- **Limites:** todos os arquivos vêm da própria urna; software alterado que altere os 3 registros de forma coerente não é detectável aqui (precisa de auditoria do código/assinatura); o hash por linha do log não é verificável com dados públicos.
 
 ### Aviso de abertura
 
