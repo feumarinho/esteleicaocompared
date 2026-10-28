@@ -109,17 +109,28 @@ def resumo_conciliacao(b: pd.DataFrame) -> list[dict]:
 
 
 GRUPOS_SOFT = {"log_modelo": "Modelo da urna", "log_versao": "Versão do software", "log_uefi": "Firmware (UEFI)",
-               "carga_data": "Data da carga", "bu_midia_pc": "Computador gerador da mídia",
-               "assin_falha": "Falha de assinatura no log", "faixa_erros": "Erros no log da urna"}
+               "carga_data": "Data da carga",
+               "assin_falha": "Falha de assinatura no log", "faixa_erros": "Erros no log da urna",
+               "faixa_ritmo": "Votos com menos de 10 s (ritmo)", "faixa_desl": "Desligamentos da urna no dia",
+               "faixa_susp": "Votos suspensos no dia", "faixa_abre": "Abertura da seção", "faixa_fecha": "Encerramento da seção"}
 RESULTADOS = {"z_desvio_13": "Lula acima/abaixo do esperado (z)", "d_lula_pp": "Variação do Lula 1º→2º (p.p.)",
               "bn_pct": "Brancos+nulos 2º turno (fração)", "d_bn_pp": "Variação de brancos+nulos (p.p.)",
               "d_abst_pp": "Variação da abstenção (p.p.)"}
+
+
+# a partir de que tamanho um efeito deixa de ser desprezível (o z do desvio tem desvio padrão ≈ 1)
+LIMIAR_RELEVANTE = {"z_desvio_13": 0.10, "d_lula_pp": 0.3, "bn_pct": 0.003, "d_bn_pp": 0.3, "d_abst_pp": 0.3}
 
 
 def efeitos_software(b: pd.DataFrame) -> list[dict]:
     d = b.copy()
     d["assin_falha"] = np.where(d["log_assin_falha"] > 0, "com falha", "sem falha")
     d["faixa_erros"] = pd.cut(d["log_n_erro"], [-1, 0, 2, 10_000], labels=["0 erros", "1–2 erros", "3+ erros"]).astype(str)
+    d["faixa_ritmo"] = pd.cut(d["d2_dur_lt10"], [-0.01, 0.02, 0.10, 0.30, 1.0], labels=["até 2%", "2–10%", "10–30%", "mais de 30%"]).astype(str)
+    d["faixa_desl"] = pd.cut(d["d2_desligamentos"], [-1, 0, 1, 1000], labels=["0", "1", "2 ou mais"]).astype(str)
+    d["faixa_susp"] = np.where(d["d2_suspensos"] > 0, "com suspensos", "sem suspensos")
+    d["faixa_abre"] = pd.cut(d["abertura_min"] - 480, [-10_000, 5, 30, 10_000], labels=["no horário (até 08:05)", "08:05–08:30", "depois das 08:30"]).astype(str)
+    d["faixa_fecha"] = pd.cut(d["encerramento_min"] - 1020, [-10_000, -1, 30, 10_000], labels=["antes das 17h", "17:00–17:30", "depois das 17:30"]).astype(str)
     d["bu_midia_pc"] = d["bu_midia_pc"].astype(str).str[:6]   # prefixo identifica o grupo/gerador, sem expor série
     d["cd_municipio"] = d["cd_municipio"].astype(int)
     linhas = []
@@ -127,9 +138,10 @@ def efeitos_software(b: pd.DataFrame) -> list[dict]:
         if g not in d:
             continue
         for y, roty in RESULTADOS.items():
-            e = efeito_dentro_municipio(d, g, y, min_secoes=100)
+            e = efeito_dentro_municipio(d, g, y, min_secoes=100, min_municipios=8)
             for r in e.to_dict("records"):
-                linhas.append({"grupo": g, "grupo_rotulo": rot, "resultado": y, "resultado_rotulo": roty, **r})
+                linhas.append({"grupo": g, "grupo_rotulo": rot, "resultado": y, "resultado_rotulo": roty, **r,
+                               "relevante": bool(abs(r["efeito"]) >= LIMIAR_RELEVANTE[y])})
     return linhas
 
 

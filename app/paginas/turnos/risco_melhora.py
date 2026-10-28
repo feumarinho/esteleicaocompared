@@ -23,7 +23,7 @@ def render(ctx):
                 "`python baixar_logs.py --turno 1` e depois `python gerar_resultado_risco.py`.")
     else:
         st.subheader("Seções de risco do 1º turno × desempenho no 2º")
-        st.caption("Os critérios de risco vêm dos **logs das urnas do 1º turno** (o TSE ainda não publicou os do 2º). "
+        st.caption("Os critérios de risco vêm dos **logs das urnas do 1º turno** (os do 2º turno estão na página **Integridade → Persistência do risco**). "
                    "Aqui eles são cruzados com o desempenho do candidato no 2º turno em relação ao seu município. "
                    "Os dados desta aba são um resultado pré-calculado (exterior fora).")
         cand_r = st.session_state.get("risco_cand", candidatos_risco(ano_r)[0])
@@ -173,5 +173,5 @@ def render(ctx):
                 "fila, idosos). Uma associação pode vir desse perfil, não de irregularidade, e o contrário também vale.\n"
                 "- Seções com abstenção muito baixa no 1º turno tendem a ter mais abstenção no 2º (regressão à média), o que "
                 "pode afetar a comparação. Veja também a abstenção do 2º turno antes de concluir.\n"
-                "- Os logs do 2º turno ainda não foram publicados; quando saírem, dá para medir se as mesmas seções "
-                "se repetem como de risco.")
+                "- Os logs do 2º turno já estão disponíveis: a página **Integridade das urnas → Persistência do risco** mostra "
+                "se as mesmas seções se repetem como de risco.")

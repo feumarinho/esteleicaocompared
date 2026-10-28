@@ -8,7 +8,7 @@ import pandas as pd
 
 
 def efeito_dentro_municipio(df: pd.DataFrame, grupo: str, y: str, peso: str = "comparecimento",
-                            min_secoes: int = 300, chave=("uf", "cd_municipio")) -> pd.DataFrame:
+                            min_secoes: int = 300, min_municipios: int = 1, chave=("uf", "cd_municipio")) -> pd.DataFrame:
     """
     Quanto `y` difere, em média, entre as seções de cada nível de `grupo` e as OUTRAS seções do mesmo município
     (média ponderada por `peso`). Só entram municípios que têm mais de um nível. O erro-padrão trata cada município
@@ -31,6 +31,8 @@ def efeito_dentro_municipio(df: pd.DataFrame, grupo: str, y: str, peso: str = "c
         W = g[peso].sum()
         est = g["wdev"].sum() / W
         bloco = g.groupby(k, observed=True).agg(S=("wdev", "sum"), Wm=(peso, "sum"))
+        if len(bloco) < min_municipios:
+            continue
         ep = np.sqrt(((bloco["S"] - est * bloco["Wm"]) ** 2).sum()) / W
         linhas.append({"nivel": nivel, "secoes": len(g), "municipios": len(bloco), "efeito": est, "ep": ep,
                        "z": est / ep if ep > 0 else np.nan})

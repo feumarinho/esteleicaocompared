@@ -37,7 +37,7 @@ def render(ctx):
         + f"Os logs divergem do comparecimento em {tot['log_diferente_bu'] / tot['secoes']:.2%} das seções (perda de linhas, urna trocada).\n"
         f"- **Software:** {len(comp['log_modelo'])} modelos de urna, {len(comp['log_versao'])} versão(ões) de software e "
         f"{len(comp['log_uefi'])} firmware(s) nos logs. Em {len(z)} comparações dentro do município, {int((z > 2).sum())} passaram de |z|>2 "
-        f"(esperado por acaso: ~{len(z) * 0.05:.0f}) e {int((z > 3).sum())} de |z|>3.\n"
+        f"(esperado por acaso: ~{len(z) * 0.05:.0f}) e {int((z > 3).sum())} de |z|>3; só {int((s['relevante'] & (s['z'].abs() > 3)).sum())} também têm tamanho relevante.\n"
         f"- **Dígitos finais:** {sum(1 for x in dg if x < 0.05)} de {len(dg)} testes com p<0,05 (esperado por acaso: ~{len(dg) * 0.05:.0f}).\n"
         f"- **Persistência do risco:** as seções de abstenção baixa no 1º turno repetem no 2º em "
         f"{p.loc[p.criterio == 'Abstenção baixa', 't2_dado_t1'].iloc[0]:.0%} dos casos (contra {p.loc[p.criterio == 'Abstenção baixa', 't2_dado_nao_t1'].iloc[0]:.1%} das demais): é uma característica estável da seção.")

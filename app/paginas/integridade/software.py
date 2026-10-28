@@ -36,18 +36,21 @@ def render(ctx):
         st.plotly_chart(fig, width="stretch")
         d = d.assign(**{"IC 95% de": d["efeito"] - 1.96 * d["ep"], "IC 95% até": d["efeito"] + 1.96 * d["ep"]})
         st.dataframe(d[["nivel", "secoes", "municipios", "efeito", "IC 95% de", "IC 95% até", "z"]]
-                     .rename(columns={"nivel": "grupo", "secoes": "seções", "municipios": "municípios"}),
+                     .rename(columns={"nivel": "grupo", "secoes": "seções", "municipios": "municípios", "z": "z do efeito"}),
                      hide_index=True, width="stretch",
                      column_config={c: st.column_config.NumberColumn(format="%.3f") for c in ("efeito", "IC 95% de", "IC 95% até", "z")})
     st.markdown("#### Quantos efeitos aparecem 'significativos'?")
     z = s["z"].abs()
     n = int(z.notna().sum())
+    rel = s["relevante"] & (z > 3)
     st.markdown(
         f"Foram feitas **{n} comparações**; só por acaso, cerca de **{n * 0.05:.0f}** devem passar de |z| > 2. "
-        f"Passaram **{int((z > 2).sum())}**, e **{int((z > 3).sum())}** passaram de 3. "
-        "Um padrão de fraude no software apareceria como o **mesmo grupo** (uma versão, uma carga) destoando em "
+        f"Passaram **{int((z > 2).sum())}**, e **{int((z > 3).sum())}** passaram de 3. Com tantas seções, até diferenças "
+        "minúsculas ficam 'significativas'; por isso conta também o **tamanho**: "
+        f"**{int(rel.sum())}** comparações têm z > 3 **e** tamanho relevante (≥ 0,1 desvio padrão no z do Lula; "
+        "≥ 0,3 ponto percentual nas variações). Um padrão de fraude no software apareceria como o **mesmo grupo** (uma versão, uma carga) destoando em "
         "vários resultados ao mesmo tempo e com tamanho relevante, não como um valor isolado.")
-    mais = s.loc[z.sort_values(ascending=False).index[:8], ["grupo_rotulo", "nivel", "resultado_rotulo", "secoes", "efeito", "z"]]
+    mais = s.loc[z.sort_values(ascending=False).index[:8], ["grupo_rotulo", "nivel", "resultado_rotulo", "secoes", "efeito", "z", "relevante"]]
     st.dataframe(mais.rename(columns={"grupo_rotulo": "agrupamento", "nivel": "grupo", "resultado_rotulo": "resultado", "secoes": "seções"}),
                  hide_index=True, width="stretch")
     with st.expander("Como foi calculado e o que isto NÃO mostra"):

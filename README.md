@@ -37,7 +37,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-python baixar_dados.py
+python coleta/baixar_dados.py
 streamlit run painel.py
 ```
 
@@ -46,9 +46,9 @@ Nas próximas vezes, basta `source .venv/bin/activate` e `streamlit run painel.p
 ### Logs de urna (horário dos votos e identificação do eleitor)
 
 ```bash
-python baixar_logs.py --ufs AC
-python baixar_logs.py --ufs CE BA
-python baixar_logs.py
+python coleta/baixar_logs.py --ufs AC
+python coleta/baixar_logs.py --ufs CE BA
+python coleta/baixar_logs.py
 ```
 
 Os arquivos do TSE ("Arquivos transmitidos para totalização") vêm **um zip por
@@ -73,7 +73,7 @@ parou com `-C -`), mantenha o nome original do arquivo e depois use `--zip`:
 
 ```bash
 curl -L -C - --retry 50 --retry-all-errors -O https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2026/arqurnatot/bu_imgbu_logjez_rdv_vscmr_2026_1t_CE.zip
-python baixar_logs.py --zip bu_imgbu_logjez_rdv_vscmr_2026_1t_CE.zip
+python coleta/baixar_logs.py --zip bu_imgbu_logjez_rdv_vscmr_2026_1t_CE.zip
 ```
 
 O processamento lê ~800 logs/s por núcleo de CPU. O painel junta os logs
@@ -83,9 +83,9 @@ automaticamente quando o arquivo `dados/logs_2026_t1_<UF>.parquet` existe. Fonte
 Outras opções:
 
 ```bash
-python baixar_dados.py --turno 2
-python baixar_dados.py --ano 2022
-python baixar_dados.py --zip caminho/do/arquivo.zip
+python coleta/baixar_dados.py --turno 2
+python coleta/baixar_dados.py --ano 2022
+python coleta/baixar_dados.py --zip caminho/do/arquivo.zip
 ```
 
 Se o download falhar, baixe manualmente o arquivo **"Detalhe da apuração por
@@ -95,9 +95,9 @@ e use `--zip`.
 Para testar sem baixar nada (dados inventados, com anomalias plantadas):
 
 ```bash
-python gerar_dados_teste.py
-python baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip
-for f in dados/teste_arqurna_*.zip; do python baixar_logs.py --zip $f; done
+python coleta/gerar_dados_teste.py
+python coleta/python coleta/baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip
+for f in dados/teste_arqurna_*.zip; do python coleta/baixar_logs.py --zip $f; done
 ```
 
 ## Publicar na internet (servidor Windows)
@@ -249,7 +249,7 @@ atrasada, seções agregadas. O que separa fila de algo estranho é o contexto:
 
 Este projeto é uma **ferramenta**. Os dados são **públicos** (TSE). As conclusões tiradas deles são de quem as
 tira: os autores deste repositório não têm relação com elas. Se tiver dúvida de como os cálculos são feitos,
-peça à sua IA para ler o código (`analise.py`, `painel.py`) e explicar.
+peça à sua IA para ler o código (pasta `analise/`, `painel.py` e `app/`) e explicar.
 
 Código: https://github.com/feumarinho/esteleicaocompared
 
