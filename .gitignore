@@ -1,4 +1,9 @@
-dados/
+# dados: os .parquet/.json processados VÃO no git (o app roda logo após o git clone);
+# só os arquivos brutos/temporários do TSE ficam de fora.
+dados/*.zip
+dados/*.part
+dados/logs_brutos_*
+dados/*1999*
 __pycache__/
 *.pyc
 .venv/

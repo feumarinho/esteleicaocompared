@@ -43,7 +43,7 @@ e uma seção "Como ler este painel". Manter esse tom.
 | `deploy/empacotar.py` | Gera `pacote_servidor.zip` (código + `dados/*.parquet`) no Mac. |
 | `deploy/LEIAME_WINDOWS.md` | Passo a passo de publicação no Windows. |
 
-`dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
+`logs/`, `.venv/`, `pacote_servidor.zip` e os arquivos **brutos** de `dados/` (`*.zip`, `logs_brutos_*`, `*1999*`) estão no `.gitignore`. Os `.parquet`/`.json` **processados** de `dados/` (≈ 71 MB, comprimidos com zstd) e de `resultados/` (34 MB) **vão no git**, para o app rodar logo após o `git clone`, sem baixar nada do TSE.
 
 ## 3. Fontes de dados (TSE)
 
@@ -126,7 +126,7 @@ A base nacional tem ~500 mil seções × ~150 colunas (~300 MB em memória). Já
 - Serviço do painel: `deploy\instalar_servico_windows.ps1` (padrão `-Porta 8503 -Endereco 127.0.0.1`). Comando registrado:
   `.venv\Scripts\python.exe -m streamlit run painel.py --server.port 8503 --server.address 127.0.0.1 --server.headless true --server.fileWatcherType none --server.runOnSave false --browser.gatherUsageStats false --client.toolbarMode viewer`; log em `logs\servico.log`.
 - **Não usar o `python` global** no servidor (não tem pandas): sempre `C:\git\esteleicao\.venv\Scripts\python.exe`.
-- Dados: o servidor **não baixa nada do TSE**; usa os `.parquet` gerados no Mac (`deploy/empacotar.py` → `pacote_servidor.zip`, enviado ao servidor). A pasta `dados` não vai pelo git.
+- Dados: o servidor **não baixa nada do TSE**. Os `.parquet` processados vêm no próprio git (`dados/` e `resultados/`): basta `git pull`. O `deploy/empacotar.py` (→ `pacote_servidor.zip`) continua existindo para quem não tiver acesso ao git.
 - WebSocket: o Streamlit 1.65 só aceita WebSocket se Origin == Host (ou `server.corsAllowedOrigins`). O Caddy repassa o Host original, então funciona sem configuração extra (testado: Origin do próprio domínio → 101; outro domínio → 403). Se um dia houver proxy que reescreva o Host, use `-Dominio https://esteleicao.com` no instalador.
 - `Caddyfile.est` atual:
   ```
@@ -154,7 +154,8 @@ A base nacional tem ~500 mil seções × ~150 colunas (~300 MB em memória). Já
 
 ## 8. Rotinas
 
-- Atualizar dados/código no servidor: no Mac `python deploy/empacotar.py`; copiar o zip para `C:\git\`; `Expand-Archive C:\git\pacote_servidor.zip -DestinationPath C:\git -Force`; `nssm restart esteleicao`.
+- Atualizar dados/código no servidor: `git pull` em `C:\git\esteleicao` e `nssm restart esteleicao`. (Alternativa sem git: no Mac `python deploy/empacotar.py`; copiar o zip para `C:\git\`; `Expand-Archive C:\git\pacote_servidor.zip -DestinationPath C:\git -Force`.)
+- Regenerar dados: rodar os scripts `baixar_*.py` (os logs brutos somam ≈ 50 GB de download), recomprimir os parquets com zstd (`pyarrow.parquet.write_table(..., compression="zstd", compression_level=9)`) e commitar `dados/` e `resultados/`. Cada versão nova pesa ≈ 100 MB no histórico do git: gere uma só.
 - 2º turno (25/10/2026): `python baixar_dados.py --turno 2` e `python baixar_logs.py --turno 2` no Mac, quando o TSE publicar.
 - Testes sem internet: `python gerar_dados_teste.py`, depois `baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip` e `baixar_logs.py --zip` para cada `dados/teste_arqurna_*.zip`.
 

@@ -214,8 +214,10 @@ def linha_df(s: pd.Series) -> pd.DataFrame:
 
 # ---------------------------------------------------------------- dados
 arquivos = sorted(PASTA.glob("secoes_*.parquet"), reverse=True)
+arquivos.sort(key=lambda a: 0 if arquivos_logs(a) else 1)   # abre no turno que tem logs (todas as abas funcionam)
 if not arquivos:
-    st.error("Nenhum dado encontrado. Rode primeiro:  `python baixar_dados.py`")
+    st.error("Nenhum dado encontrado em `dados/`. Os dados processados vêm no repositório: atualize-o (`git pull`) "
+             "ou, para gerar do zero, rode `python baixar_dados.py`.")
     st.stop()
 
 with st.sidebar:
@@ -290,7 +292,11 @@ with st.sidebar:
                        "Rode `python baixar_logs.py --refazer`.")
     else:
         criterios, limite_cruz = ["Abstenção baixa", "Votação tardia"], 2.0
-        st.caption("Sem logs de urna. Rode `python baixar_logs.py --ufs AC` (por exemplo).")
+        if arquivo.stem.endswith("_t2"):
+            st.caption("Logs das urnas do 2º turno: o TSE ainda não os publicou. Para ver os critérios de risco, "
+                       "escolha o 1º turno em \"Eleição / turno\".")
+        else:
+            st.caption("Sem logs de urna para este turno em `dados/`.")
 
 
 def calcular_score(d: pd.DataFrame) -> pd.Series:
@@ -683,9 +689,12 @@ with aba_alertas:
         detalhe_secao(sel.iloc[linhas[0]])
 
 # ---------------------------------------------------------------- horário dos votos
-SEM_LOGS = ("Ainda não há logs de urna para este nível. Baixe e processe os logs do(s) estado(s):\n\n"
-            "```\npython baixar_logs.py --ufs AC\n```\n"
-            "Depois recarregue o painel. Comece por um estado pequeno: os arquivos do TSE são grandes.")
+if arquivo.stem.endswith("_t2"):
+    SEM_LOGS = ("Esta análise usa os **logs das urnas**, e o TSE ainda **não publicou os logs do 2º turno**. "
+                "Escolha o **1º turno** em \"Eleição / turno\" (barra lateral): os logs dele já vêm com o painel.")
+else:
+    SEM_LOGS = ("Ainda não há logs de urna para este nível em `dados/`. Para gerá-los: `python baixar_logs.py --turno 1` "
+                "(atenção: são dezenas de GB de download; os dados processados normalmente já vêm no repositório).")
 
 with aba_hora:
     dh = com_log(df)
