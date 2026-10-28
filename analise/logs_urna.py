@@ -82,11 +82,15 @@ def extrair_logd(conteudo_logjez: bytes) -> str:
     return arquivos[nome].decode("latin-1")
 
 
-def ler_eventos(texto: str) -> dict:
+def ler_eventos(texto: str, dia: str | None = None) -> dict:
     """
     Extrai do log os eventos do dia da eleição.
     Devolve segundos-desde-meia-noite (hora local) de cada voto, se foi biométrico,
     o horário de abertura, IDs de urna e a identificação da seção (pelo próprio log).
+
+    `dia` ("dd/mm/aaaa") fixa o dia da eleição. Sem ele, usa o dia com mais votos, o que
+    só funciona quando o log tem UM dia de votação: o log do 2º turno é CUMULATIVO e traz
+    também os votos do 1º turno (e às vezes o 1º dia tem mais votos que o 2º).
     """
     linhas = []
     contagem_dias = Counter()
@@ -110,7 +114,7 @@ def ler_eventos(texto: str) -> dict:
     if not contagem_dias:
         return {"votos_s": np.array([], dtype=np.int32), "hab": np.array([], dtype=np.int8),
                 "abertura_s": None, "urnas": set(), "dia": None, "ident": ident}
-    dia_eleicao = contagem_dias.most_common(1)[0][0]
+    dia_eleicao = dia if dia else contagem_dias.most_common(1)[0][0]
 
     votos, hab, urnas = [], [], set()
     abertura = None
@@ -232,10 +236,10 @@ def metricas(votos_s: np.ndarray, hab: np.ndarray, fuso: int) -> dict:
     }
 
 
-def processar_logjez(nome: str, conteudo: bytes) -> dict | None:
+def processar_logjez(nome: str, conteudo: bytes, dia: str | None = None) -> dict | None:
     """Função usada em paralelo: um arquivo .logjez -> eventos + chave da seção."""
     try:
-        ev = ler_eventos(extrair_logd(conteudo))
+        ev = ler_eventos(extrair_logd(conteudo), dia)
     except Exception as e:  # arquivo corrompido, formato inesperado
         return {"nome": nome, "erro": f"{type(e).__name__}: {e}"}
     m = RE_NOME.search(nome)
@@ -246,3 +250,43 @@ def processar_logjez(nome: str, conteudo: bytes) -> dict | None:
     else:
         return {"nome": nome, "erro": "não foi possível identificar a seção"}
     return {"nome": nome, "chave": chave, **ev}
+
+
+def consolidar_secoes(por_secao: dict, uf: str):
+    """
+    Junta os resultados de `ler_eventos` por seção ({(município, zona, seção): [resultado, ...]}) e calcula as
+    métricas de cada seção. O fuso de cada seção é estimado pela abertura e depois harmonizado pelo fuso mais
+    comum do município. Devolve um DataFrame (vazio se não houver nada).
+    """
+    import pandas as pd
+    from collections import defaultdict
+    # fuso de cada seção e harmonização pelo fuso mais comum do município
+    linhas = []
+    for (mun, zona, secao), logs in por_secao.items():
+        votos = np.concatenate([l["votos_s"] for l in logs])
+        hab = np.concatenate([l["hab"] for l in logs])
+        ordem = np.argsort(votos, kind="stable")
+        votos, hab = votos[ordem], hab[ordem]
+        aberturas = [l["abertura_s"] for l in logs if l["abertura_s"] is not None]
+        abertura = min(aberturas) if aberturas else None
+        linhas.append({"cd_municipio": mun, "zona": zona, "secao": secao,
+                       "_votos": votos, "_hab": hab, "_abertura": abertura,
+                       "_fuso": estimar_fuso(abertura, int(votos[0]) if len(votos) else None, uf),
+                       "n_logs": len(logs), "n_urnas": len(set().union(*[l["urnas"] for l in logs])),
+                       "dia": next((l["dia"] for l in logs if l["dia"]), None)})
+    fuso_mun = defaultdict(Counter)
+    for l in linhas:
+        fuso_mun[l["cd_municipio"]][l["_fuso"]] += 1
+    saida = []
+    for l in linhas:
+        fuso = fuso_mun[l["cd_municipio"]].most_common(1)[0][0]
+        m = metricas(l["_votos"], l["_hab"], fuso)
+        m["abertura"] = (l["_abertura"] / 3600 - fuso) if l["_abertura"] is not None else np.nan
+        m["abertura_atrasada_min"] = max(0.0, (m["abertura"] - ABERTURA) * 60) if l["_abertura"] else np.nan
+        saida.append({"uf": uf, **{k: v for k, v in l.items() if not k.startswith("_")}, **m})
+    if not saida:
+        return pd.DataFrame()
+    df = pd.DataFrame(saida)
+    hcols = [f"{p}{h:02d}" for p in "hsm" for h in range(24)]
+    df[hcols] = df[hcols].astype("int16")
+    return df
