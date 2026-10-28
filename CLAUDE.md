@@ -51,7 +51,7 @@ deploy/              publicação no Windows
 |---|---|
 | `baixar_dados.py` | Baixa "Detalhe da apuração por seção eleitoral" → `dados/secoes_<ano>_t<turno>.parquet`. |
 | `baixar_logs.py` | Logs das urnas por UF (1º turno) → `dados/logs_<ano>_t<turno>_<UF>.parquet`. |
-| `baixar_turno2.py` | **2º turno**: lê por faixas (HTTP Range), SEM gravar os zips de 124 GB, o boletim (BU), o RDV e o log de cada seção → `dados/logs_2026_t2_<UF>.parquet` + `dados/integ_2026_t2_<UF>.parquet` (este último é ignorado pelo git). Conferências cruzadas BU×RDV×log embutidas. |
+| `baixar_turno2.py` | **2º turno**: lê por faixas (HTTP Range), SEM gravar os zips de 124 GB, o boletim (BU), o RDV e o log de cada seção → `dados/logs_2026_t2_<UF>.parquet` + `dados/integ_2026_t2_<UF>.parquet` (ambos VÃO no git, ~30 MB no total: outra máquina com `git clone` não precisa baixar nada dos 124 GB do TSE; o script pula UFs já processadas). Conferências cruzadas BU×RDV×log embutidas. |
 | `download_tse.py` | Downloads resilientes (HTTP Range, retomável). |
 | `baixar_votos.py` | "Votação por seção" (Presidente) → `dados/votos_<ano>_t<turno>.parquet` e `candidatos_*.json`. |
 | `gerar_resultado_risco.py` | `resultados/risco_<ano>.parquet` (critérios de risco do 1º turno + desempenho no 2º). |

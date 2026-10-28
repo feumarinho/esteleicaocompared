@@ -12,5 +12,3 @@ _amostra/
 logs/
 pacote_servidor.zip
 
-# leitura do 2º turno por seção (grande; os resumos vão em resultados/)
-dados/integ_*
