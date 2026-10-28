@@ -215,7 +215,8 @@ def linha_df(s: pd.Series) -> pd.DataFrame:
 # ---------------------------------------------------------------- dados
 arquivos = sorted(PASTA.glob("secoes_*.parquet"), reverse=True)
 if not arquivos:
-    st.error("Nenhum dado encontrado. Rode primeiro:  `python baixar_dados.py`")
+    st.error("Nenhum dado encontrado em `dados/`. Os dados processados vêm no repositório: atualize-o (`git pull`) "
+             "ou, para gerar do zero, rode `python baixar_dados.py`.")
     st.stop()
 
 with st.sidebar:
@@ -290,7 +291,11 @@ with st.sidebar:
                        "Rode `python baixar_logs.py --refazer`.")
     else:
         criterios, limite_cruz = ["Abstenção baixa", "Votação tardia"], 2.0
-        st.caption("Sem logs de urna. Rode `python baixar_logs.py --ufs AC` (por exemplo).")
+        if arquivo.stem.endswith("_t2"):
+            st.caption("Logs das urnas do 2º turno: o TSE ainda não os publicou. Para ver os critérios de risco, "
+                       "escolha o 1º turno em \"Eleição / turno\".")
+        else:
+            st.caption("Sem logs de urna para este turno em `dados/`.")
 
 
 def calcular_score(d: pd.DataFrame) -> pd.Series:

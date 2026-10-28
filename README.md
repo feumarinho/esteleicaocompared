@@ -10,6 +10,23 @@ principalmente, essas coisas acontecendo juntas.
 
 ## Como usar
 
+**Já vem com os dados.** Os dados processados das Eleições 2026 (1º e 2º turno) estão no repositório
+(pasta `dados/` e `resultados/`, cerca de 105 MB). Basta clonar e abrir o painel; não é preciso baixar nada do TSE:
+
+```bash
+git clone https://github.com/feumarinho/esteleicaocompared
+cd esteleicaocompared
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run painel.py
+```
+
+Espaço em disco: cerca de 110 MB do repositório (dados) mais 0,5 a 1 GB do ambiente Python (`.venv`).
+Os passos abaixo (`baixar_dados.py`, `baixar_logs.py`...) só são necessários para **gerar os dados do zero**
+(o download dos logs das urnas é de dezenas de GB) ou para atualizá-los.
+
+
 Requer Python 3.9+. No macOS o comando é `python3` (se não existir, o sistema
 oferece instalar as "Command Line Tools"; aceite).
 
