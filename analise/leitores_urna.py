@@ -166,7 +166,10 @@ def ler_bu(b: bytes) -> dict:
         aptos = bloco.filhos[1].inteiro if bloco.filhos[1].is_(0, 2) else None
         ent: list = []
         _entradas_bu(bloco, ent)
-        cand = {n: q for t, q, n in ent if t == 1 and n is not None}
+        cand: dict = {}
+        for t, q, n in ent:
+            if t == 1 and n is not None:
+                cand[n] = cand.get(n, 0) + q   # consultas (sim/não) podem repetir o número: somar, não sobrescrever
         out["bu_cargos"][cod] = {"aptos": aptos, "cand": cand,
                                   "branco": sum(q for t, q, n in ent if t == 2),
                                   "nulo": sum(q for t, q, n in ent if t == 3)}

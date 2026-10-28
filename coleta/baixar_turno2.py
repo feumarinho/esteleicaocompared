@@ -144,8 +144,9 @@ def _achatar_bu_rdv(bu: dict, rdv: dict, turno: int) -> dict:
         iguais = (p["branco"] == rp["branco"] and p["nulo"] == rp["nulo"]
                   and {str(n): q for n, q in p["cand"].items()} == dict(rp["cand"]))
         if g is not None and rg is not None:
+            # outro cargo: compara os totais (consultas sim/não têm numeração que o boletim não discrimina)
             iguais = iguais and (g["branco"] == rg["branco"] and g["nulo"] == rg["nulo"]
-                                 and {str(n): q for n, q in g["cand"].items()} == dict(rg["cand"]))
+                                 and sum(g["cand"].values()) == sum(rg["cand"].values()))
         out["chk_bu_rdv"] = bool(iguais)
     if p is not None:
         out["chk_bu_comp"] = (sum(p["cand"].values()) + p["branco"] + p["nulo"]) == bu["bu_comparecimento"]
