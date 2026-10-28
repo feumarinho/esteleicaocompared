@@ -33,6 +33,7 @@ e uma seção "Como ler este painel". Manter esse tom.
 | `download_tse.py` | Downloads resilientes: modo padrão baixa **só os logs** de dentro do zip remoto via HTTP Range (lê o diretório central do zip, 8 conexões, retomável, grava em `dados/logs_brutos_<ano>_<turno>t_<UF>.zip`); plano B `--completo` baixa o zip inteiro com retomada. |
 | `logs_urna.py` | Parser do log da urna (`logd.dat`) e cálculo de métricas por seção. |
 | `baixar_votos.py` | Baixa "Votação por seção eleitoral" (arquivo `votacao_secao_2026_BR.zip`, Presidente, 1º e 2º turno) → `dados/votos_<ano>_t<turno>.parquet` (colunas `v_<nº do candidato>`, `v_95` branco, `v_96` nulo) e `dados/candidatos_<ano>_t<turno>.json`. Votos batem 100% com o comparecimento oficial. |
+| `gerar_resultado_risco.py` | Gera `resultados/risco_<ano>.parquet` (estático, vai no git): métricas dos 3 critérios de risco (logs do 1º turno) + desempenho dos candidatos no 2º turno por seção. Lido pela aba 🎯. |
 | `analise.py` | Estatística: z da abstenção, z de proporções (sem digital, manual, após 17h), z do horário, sinais, correção de fuso. |
 | `painel.py` | Painel Streamlit. |
 | `gerar_dados_teste.py` | Gera dados sintéticos com anomalias plantadas (ano 1999) para testes. |
@@ -93,6 +94,17 @@ e uma seção "Como ler este painel". Manter esse tom.
 - Filtra por UF (sidebar); intervalo 5–95% por bootstrap de municípios (100 reamostragens, ~0,4 s). Município/zona caem para a UF (poucas seções).
 - Achado nacional (27/10/2026): Flávio → Lula ≈ 0 (coef. sem restrição −0,04); os +10,4 mi do Lula viriam de brancos/nulos (~3,8 mi), ex-abstêmios (~3,4 mi) e eleitores dos eliminados (~3,6 mi). Cury → Lula 55%, Renan 33%, Caiado 30%.
 - Limites: troca simétrica de lado é invisível; fluxos entre grupos que andam juntos no mapa (brancos/nulos × abstenção) são mal identificados; o intervalo cobre só o acaso amostral, não o erro do modelo.
+
+### Risco do 1º turno × melhora no 2º (aba 🎯, `analise.marcar_criterios` / `resumo_cruzamento`)
+
+- Cruza as seções marcadas pelos 3 critérios (calculados com os **logs do 1º turno**; o TSE ainda não publicou os do 2º) com o desempenho do candidato no 2º turno vs município (`z_desvio`, `votos × esperado`). Os critérios continuam ajustáveis na aba (mesma regra do painel original, função `marcar_criterios`).
+- **Dados estáticos no git**: a aba lê `resultados/risco_<ano>.parquet` (+ `.json` com UFs e candidatos), gerado por `python gerar_resultado_risco.py` a partir de `dados/` (secoes t1/t2, votos t1/t2, logs t1). Em produção não baixa logs nem precisa de `dados/` para esta aba. Exterior (ZZ) fora; seções com < 30 votos válidos num dos turnos fora.
+- Para regenerar: `python baixar_logs.py --turno 1` (≈ 50 GB baixados no total, ~10 MB/s; apagar `dados/logs_brutos_*` depois de cada UF), depois `python gerar_resultado_risco.py`, e commitar o parquet novo (cada versão pesa ~37 MB no histórico do git).
+- Quando os logs do 2º turno saírem, dá para medir se as mesmas seções se repetem como de risco.
+
+### Aviso de abertura
+
+- `painel.py` abre um **diálogo** (`st.dialog`, só fecha no OK, uma vez por visita) dizendo que o site é uma ferramenta, os dados são públicos, as conclusões são de quem as tira, link do código (`REPO_URL`) e créditos ao projeto original (`ORIGINAL_URL` = https://github.com/ralbuque/esteleicao, de Ricardo Albuquerque). Mesmo texto no README. Scripts de teste com navegador precisam clicar em OK antes de qualquer outra coisa.
 
 ## 5. Painel: desempenho (importante para produção)
 

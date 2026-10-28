@@ -13,10 +13,15 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from analise import (BRANCO, NULO, comparar_turnos, estimar_fluxos, juntar_horario, limites_funil,
-                     perfil_horario, pontuar_secoes, preparar_fluxo, resumo, resumo_coluna, votos_por_hora)
+                     marcar_criterios, perfil_horario, pontuar_secoes, preparar_fluxo, resumo, resumo_coluna,
+                     resumo_cruzamento, votos_por_hora)
 
 st.set_page_config(page_title="Abstenção por seção", page_icon="🗳️", layout="wide")
 PASTA = Path(__file__).parent / "dados"
+RESULTADOS = Path(__file__).parent / "resultados"   # resultados pré-calculados, versionados no git
+REPO_URL = "https://github.com/feumarinho/esteleicaocompared"
+ORIGINAL_AUTOR = "Ricardo Albuquerque"
+ORIGINAL_URL = "https://github.com/ralbuque/esteleicao"   # repositório de onde este projeto foi derivado (fork)
 COR_ALTA, COR_BAIXA, COR_NORMAL = "#d6453d", "#2f6fb5", "#9aa4b1"
 TODOS = "— Todos —"
 NOMES_CURTOS = {13: "Lula", 22: "Flávio", 70: "Cury", 14: "Renan", 55: "Caiado", 30: "Zema"}
@@ -81,6 +86,37 @@ def carregar_comparacao(ano: str, cand: int, assinatura: tuple, incluir_zz: bool
         if c in d:
             d[c] = d[c].astype("category")
     return d.reset_index(drop=True).copy()
+
+
+def arquivo_risco(ano: str) -> Path:
+    """Arquivo ESTÁTICO (vai no git) gerado por gerar_resultado_risco.py."""
+    return RESULTADOS / f"risco_{ano}.parquet"
+
+
+def candidatos_risco(ano: str) -> list[int]:
+    import json
+    return json.loads(arquivo_risco(ano).with_suffix(".json").read_text(encoding="utf-8"))["candidatos"]
+
+
+@st.cache_resource(show_spinner="Carregando o cruzamento de risco…", max_entries=2)
+def carregar_risco(ano: str, cand: int, assinatura: tuple) -> dict:
+    """Seções do 1º turno com log (métricas dos três critérios) e desempenho do candidato no 2º turno.
+    Lê o arquivo estático; em produção não baixa logs nem lê os .parquet de dados/."""
+    import pyarrow.parquet as pq
+    cols_f = pq.read_schema(arquivo_risco(ano)).names
+    comum = [c for c in cols_f if not any(c.endswith(f"_{n}") for n in (13, 22)) or c.endswith(f"_{cand}")]
+    d = pd.read_parquet(arquivo_risco(ano), columns=comum)
+    d = d.rename(columns={f"{k}_{cand}": k for k in ("votos1", "votos2", "esperado_pp", "z_desvio")})
+    d["uf"] = d["uf"].astype(str)
+    d["pct1"] = d["votos1"] / d["validos1"]
+    d["pct2"] = d["votos2"] / d["validos2"]
+    d["delta_votos"] = d["votos2"] - d["votos1"]
+    d["desvio_pp"] = d["pct2"] - d["esperado_pp"]
+    d["votos_vs_esperado"] = d["votos2"] - d["esperado_pp"] * d["validos2"]
+    for c in d.select_dtypes("float64").columns:
+        d[c] = d[c].astype("float32")
+    return {"mr": d.reset_index(drop=True).copy(), "n_ufs_log": int(d["uf"].nunique()),
+            "n_ufs": 27, "tem_manual": "z_manual" in d}
 
 
 @st.cache_resource(show_spinner="Preparando o fluxo de votos…", max_entries=2)
@@ -270,18 +306,7 @@ NOME_CRUZ = " + ".join(c.lower() for c in criterios)
 
 def sinalizar(d: pd.DataFrame) -> pd.DataFrame:
     """Marca os três critérios de interesse e conta quantos cada seção cumpre."""
-    f_abst = (d[medida] <= -limite) & (d["aptos"] >= min_aptos)
-    if "votos_apos_17" in d:
-        f_17 = (d["pct_apos_17"] >= lim_17) & (d["votos_apos_17"] >= 10)
-        if so_destoa and "dif_local_min" in d:
-            f_17 &= (d["dif_local_min"] >= 30) | d["dif_local_min"].isna()
-        f_17 = f_17.fillna(False).astype(bool)
-    else:
-        f_17 = pd.Series(False, index=d.index)
-    if "z_manual" in d:
-        f_man = ((d["z_manual"] >= limite) & (d["votos_manual"] >= 5)).fillna(False).astype(bool)
-    else:
-        f_man = pd.Series(False, index=d.index)
+    f_abst, f_17, f_man = marcar_criterios(d, medida, limite, min_aptos, lim_17, so_destoa)
     n = f_abst.astype(int) + f_17.astype(int) + f_man.astype(int)
     rot = pd.Series("", index=d.index, dtype=object)
     alguma = n > 0
@@ -295,6 +320,31 @@ def sinalizar(d: pd.DataFrame) -> pd.DataFrame:
 
 
 df = sinalizar(df)
+
+# ---------------------------------------------------------------- aviso de abertura
+def _opcoes_dialogo() -> dict:
+    """`dismissible=False` (só o OK fecha) existe nas versões novas do Streamlit; nas antigas, ignora."""
+    import inspect
+    return {"dismissible": False} if "dismissible" in inspect.signature(st.dialog).parameters else {}
+
+
+@st.dialog("Aviso", **_opcoes_dialogo())
+def aviso_abertura():
+    orig = f"[{ORIGINAL_AUTOR}]({ORIGINAL_URL})" if ORIGINAL_URL else f"**{ORIGINAL_AUTOR}**"
+    st.markdown(
+        "Este site é uma **ferramenta**. Os dados são **públicos** (TSE). As conclusões tiradas deles "
+        "são de quem as tira: **não temos nenhuma relação com elas**.\n\n"
+        f"O código está em [{REPO_URL.removeprefix('https://')}]({REPO_URL}). Se tiver dúvida de como os "
+        "cálculos são feitos, peça à sua IA para ler o código e explicar.\n\n"
+        f"Créditos: este projeto é derivado (fork) de [{ORIGINAL_URL.removeprefix('https://')}]({ORIGINAL_URL}), "
+        f"de {orig}, que criou a base do painel (abstenção, logs das urnas e critérios de seções atípicas).")
+    if st.button("OK", type="primary", width="stretch"):
+        st.rerun()
+
+
+if not st.session_state.get("aviso_visto"):
+    st.session_state["aviso_visto"] = True   # aparece uma vez por visita
+    aviso_abertura()
 
 # ---------------------------------------------------------------- cabeçalho
 nivel = ("Brasil" if uf == TODOS else uf if mun == TODOS else
@@ -500,9 +550,11 @@ if secao != TODOS:
     st.stop()
 
 # ---------------------------------------------------------------- abas
-aba_comp, aba_dist, aba_funil, aba_alertas, aba_hora, aba_dig, aba_cruz, aba_turnos, aba_fluxo = st.tabs(
+(aba_comp, aba_dist, aba_funil, aba_alertas, aba_hora, aba_dig, aba_cruz, aba_turnos, aba_fluxo,
+ aba_origem, aba_risco) = st.tabs(
     ["📊 Comparar", "📈 Distribuição", "🔻 Funil", "🚩 Sinalizadas",
-     "⏰ Horário dos votos", "🖐️ Sem digital", "🔀 Cruzamento", "🔁 1º × 2º turno", "🧭 Fluxo de votos"])
+     "⏰ Horário dos votos", "🖐️ Sem digital", "🔀 Cruzamento", "🔁 1º × 2º turno", "🧭 Fluxo de votos",
+     "🗳️ De onde vêm os votos", "🎯 Risco × melhora"])
 
 if uf == TODOS:
     filho, rotulo = ["uf"], "uf"
@@ -1206,3 +1258,305 @@ with aba_fluxo:
                 "- **Falácia ecológica**: a estimativa descreve grupos de seções, não pessoas. É um bom guia de "
                 "ordem de grandeza, nunca prova de como alguém votou.\n"
                 "- **Seleção no mapa**: o filtro de UF vale; município e zona têm poucas seções para estimar.")
+
+
+# ---------------------------------------------------------------- de onde vêm os votos (versão simples)
+def _grupo_simples(k: str, cands: dict[int, str]) -> str:
+    if k == "demais":
+        return "Votaram em outros candidatos"
+    if k == "brancos_nulos":
+        return "Votaram em branco ou nulo"
+    if k == "abstencao":
+        return "Não votaram no 1º turno"
+    n = int(k[1:])
+    return "Votaram no " + NOMES_CURTOS.get(n, cands.get(n, k).title().split()[0]) + " no 1º turno"
+
+
+def _qtd(x: float) -> str:
+    """Quantidade de votos em linguagem comum: '10,87 milhões', '870 mil', '4 mil'."""
+    return f"{_pt(x / 1e6, 2)} milhões" if abs(x) >= 1e6 else f"{_pt(round(x / 1e3))} mil"
+
+
+def _sp(x: float, casas: int = 1) -> str:
+    """Número com sinal explícito: +4,9 / −0,3."""
+    return ("+" if x >= 0 else "−") + _pt(abs(x), casas)
+
+
+def _frase(s: str) -> str:
+    return s[0].lower() + s[1:]
+
+
+def _pt(x: float, casas: int = 0) -> str:
+    return f"{x:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+with aba_origem:
+    ano_o = arquivo.stem.split("_")[1]
+    if arquivos_turnos(ano_o) is None:
+        st.info("Para ver esta seção faltam arquivos em `dados/`. Rode `python baixar_dados.py --turno 1`, "
+                "`python baixar_dados.py --turno 2` e `python baixar_votos.py`.")
+    else:
+        cands_o = candidatos_turnos(ano_o)
+        prep_o = carregar_fluxo(ano_o, tuple((q.name, q.stat().st_mtime) for q in arquivos_turnos(ano_o).values()),
+                                incluir_zz)
+        c1_, c2_ = st.columns([2, 1])
+        escolha = c1_.radio("Candidato", sorted(cands_o), horizontal=True, key="origem_cand",
+                            format_func=lambda n: NOMES_CURTOS.get(n, cands_o[n].title().split()[0]))
+        local = c2_.selectbox("Estado", ["Brasil"] + sorted(set(prep_o["uf"])), key="origem_uf")
+        quem = NOMES_CURTOS.get(escolha, cands_o[escolha].title().split()[0])
+        alvo_o = f"f{escolha}"
+        res_o = estimar_fluxos(prep_o, None if local == "Brasil" else [local], n_boot=100)
+        Fo, lo_o, hi_o = res_o["F"], res_o["lo"], res_o["hi"]
+        col = Fo[alvo_o]
+        total = float(col.sum())
+        proprios = float(col[alvo_o])
+        novos = total - proprios
+        eleit_1t = float(Fo.sum(axis=1)[alvo_o])
+
+        st.subheader(f"De onde vêm os votos do {quem} no 2º turno — {local}")
+        st.markdown(
+            f"No 2º turno, o {quem} teve **{_qtd(total)} de votos** "
+            f"{'no Brasil' if local == 'Brasil' else 'em ' + local}. "
+            f"Cerca de **{_pt(proprios / total * 100)}%** deles ({_qtd(proprios)}) já tinham votado nele "
+            f"no 1º turno. Os outros **{_qtd(novos)}** são votos novos.")
+        novos_ord = col.drop(index=alvo_o).sort_values(ascending=False)
+        novos_ord = novos_ord[novos_ord >= 0.01 * max(novos, 1)]
+        if len(novos_ord):
+            partes = [f"{_frase(_grupo_simples(o, cands_o))} ({_pt(float(v) / novos * 100)}% dos novos, {_qtd(float(v))})"
+                      for o, v in novos_ord.head(3).items()]
+            frase = "a maior parte veio dos eleitores que " + partes[0]
+            if len(partes) > 1:
+                frase += ", seguidos dos que " + partes[1]
+            if len(partes) > 2:
+                frase += " e dos que " + partes[2]
+            st.markdown("Dos votos novos, " + frase + ".")
+        fiel = float(Fo.loc[alvo_o, alvo_o]) / eleit_1t if eleit_1t else float("nan")
+        st.caption(f"Fidelidade: de cada 100 eleitores do {quem} no 1º turno, cerca de {_pt(fiel * 100)} votaram nele "
+                   "de novo.")
+
+        # --- uma barra só com a composição dos votos
+        cor_g = {alvo_o: "#b3342d", "c70": "#33415c", "c14": "#5b7db1", "c55": "#8fa8cf", "demais": "#c3cfe3",
+                 "brancos_nulos": "#9aa4b1", "abstencao": "#e0a43b"}
+        ordem_g = [alvo_o] + [o for o in novos_ord.index] + [o for o in col.index
+                                                             if o != alvo_o and o not in novos_ord.index
+                                                             and col[o] > 0]
+        fig = go.Figure()
+        for o in ordem_g:
+            v = float(col[o])
+            fig.add_trace(go.Bar(
+                y=[""], x=[v / total * 100], orientation="h", name=_grupo_simples(o, cands_o) if o != alvo_o
+                else f"Já votaram no {quem} no 1º turno",
+                marker_color=cor_g.get(o, "#2f6fb5"),
+                text=f"{v / total * 100:.0f}%" if v / total >= 0.04 else "", textposition="inside",
+                insidetextfont=dict(color="white", size=14),
+                hovertemplate=f"%{{x:.1f}}% · {_qtd(v)}<extra>%{{fullData.name}}</extra>"))
+        fig.update_layout(barmode="stack", height=210, xaxis=dict(range=[0, 100], ticksuffix="%",
+                          title="% dos votos do 2º turno"), margin=dict(l=10, r=10, t=10, b=10),
+                          legend=dict(orientation="h", y=-0.55, x=0))
+        st.plotly_chart(fig, width="stretch")
+
+        # --- votos novos, um a um
+        st.markdown(f"**Os {_qtd(novos)} de votos novos do {quem}, por origem**")
+        if len(novos_ord):
+            n_ = novos_ord.sort_values()
+            fig = go.Figure(go.Bar(
+                y=[_grupo_simples(o, cands_o) for o in n_.index], x=n_.to_numpy() / 1e6, orientation="h",
+                marker_color=[cor_g.get(o, "#2f6fb5") for o in n_.index],
+                text=[_qtd(float(v)) for v in n_], textposition="outside",
+                hovertemplate="%{y}: %{x:.2f} mi<extra></extra>"))
+            fig.update_layout(height=60 + 46 * len(n_), margin=dict(l=10, r=40, t=10, b=10),
+                              xaxis=dict(visible=False, range=[0, float(n_.max()) / 1e6 * 1.3]))
+            st.plotly_chart(fig, width="stretch")
+
+        # --- tabela simples
+        st.markdown("**Por grupo de eleitores**")
+        linhas = []
+        for o in col.index:
+            if o == alvo_o or col[o] <= 0:
+                continue
+            base_g = float(Fo.sum(axis=1)[o])
+            linhas.append({"Quem eram no 1º turno": _grupo_simples(o, cands_o),
+                           "Eleitores nesse grupo": base_g,
+                           f"Votaram no {quem} (estimativa)": float(col[o]),
+                           f"De cada 100, quantos votaram no {quem}": float(col[o]) / base_g * 100 if base_g else np.nan,
+                           "Faixa provável (votos)": f"{_mi(float(lo_o.loc[o, alvo_o]))} a {_mi(float(hi_o.loc[o, alvo_o]))}"})
+        st.dataframe(pd.DataFrame(linhas), hide_index=True, width="stretch",
+                     column_config={"Eleitores nesse grupo": st.column_config.NumberColumn(format="%d"),
+                                    f"Votaram no {quem} (estimativa)": st.column_config.NumberColumn(format="%d"),
+                                    f"De cada 100, quantos votaram no {quem}": st.column_config.NumberColumn(format="%.0f")})
+
+        with st.expander("ℹ️ Como esta estimativa é feita e o que ela não mostra"):
+            st.markdown(
+                "- O voto é secreto: **ninguém sabe como cada pessoa votou**. Esta é uma estimativa feita comparando, "
+                "seção por seção, o resultado do 1º e do 2º turno.\n"
+                "- Funciona assim: se numa seção havia muitos eleitores de um candidato eliminado e o {q} cresceu "
+                "bastante nessa seção, isso sugere que parte desses eleitores foi para ele. Repetindo isso em milhares "
+                "de seções, dá para estimar proporções.\n"
+                "- Os números são **ordens de grandeza**, não contagens. A \"faixa provável\" mostra a margem de "
+                "erro por acaso, mas não cobre erros do método.\n"
+                "- Algumas origens são difíceis de separar (por exemplo, quem votou em branco ou nulo e quem não foi "
+                "votar costumam estar nos mesmos lugares). Por isso essas duas estimativas são as menos firmes.\n"
+                "- Se muitos eleitores trocaram de lado em sentidos opostos ao mesmo tempo, isso não aparece: só o "
+                "saldo.".replace("{q}", quem))
+
+
+# ---------------------------------------------------------------- seções de risco (1º turno) × melhora no 2º
+with aba_risco:
+    ano_r = arquivo.stem.split("_")[1]
+    if not arquivo_risco(ano_r).exists():
+        st.info("Esta aba lê um arquivo pré-calculado que ainda não existe. Gere-o (precisa dos logs do 1º turno): "
+                "`python baixar_logs.py --turno 1` e depois `python gerar_resultado_risco.py`.")
+    else:
+        st.subheader("Seções de risco do 1º turno × desempenho no 2º")
+        st.caption("Os critérios de risco vêm dos **logs das urnas do 1º turno** (o TSE ainda não publicou os do 2º). "
+                   "Aqui eles são cruzados com o desempenho do candidato no 2º turno em relação ao seu município. "
+                   "Os dados desta aba são um resultado pré-calculado (exterior fora).")
+        cand_r = st.session_state.get("risco_cand", candidatos_risco(ano_r)[0])
+        pacote = carregar_risco(ano_r, cand_r, (arquivo_risco(ano_r).stat().st_mtime,))
+        if pacote["n_ufs_log"] < pacote["n_ufs"]:
+            st.warning(f"O arquivo pré-calculado cobre {pacote['n_ufs_log']} de {pacote['n_ufs']} UFs (26 estados + DF).")
+
+        c1_, c2_ = st.columns([1, 1])
+        c1_.radio("Candidato", candidatos_risco(ano_r), horizontal=True, key="risco_cand",
+                  format_func=lambda n: NOMES_CURTOS.get(n, str(n)))
+        ufs_r = sorted(pacote["mr"]["uf"].unique())
+        local_r = c2_.selectbox("Estado", ["Brasil"] + ufs_r, key="risco_uf")
+        quem_r = NOMES_CURTOS.get(cand_r, str(cand_r))
+
+        with st.expander("Ajustar os critérios de risco (mesmos do painel original)"):
+            k = st.columns(3)
+            medida_r = k[0].selectbox("Medida da abstenção", ["z_ajustado", "z_binomial", "z_simples"],
+                                      key="risco_medida", format_func={"z_ajustado": "z ajustado (recomendado)",
+                                                                       "z_binomial": "z binomial",
+                                                                       "z_simples": "z simples"}.get)
+            limite_r = k[1].slider("Limite (desvios): abstenção baixa e liberação manual", 2.0, 6.0, 3.0, 0.5,
+                                   key="risco_limite")
+            min_aptos_r = k[2].number_input("Ignorar seções com menos aptos que", 0, 500, 50, 10, key="risco_aptos")
+            k = st.columns(3)
+            lim17_r = k[0].slider("% dos votos após 17h ≥", 5, 50, 15, 5, key="risco_17") / 100
+            destoa_r = k[1].checkbox("Voto após 17h: só se destoar da escola", value=True, key="risco_destoa")
+            min_crit_r = k[2].radio("Marcada quando cumpre", [1, 2, 3], horizontal=True, key="risco_mincrit",
+                                    format_func=lambda n: {1: "≥ 1 critério", 2: "≥ 2", 3: "os 3"}[n])
+
+        mr = pacote["mr"]
+        if local_r != "Brasil":
+            mr = mr[mr["uf"] == local_r]
+
+        fa, f17, fm = marcar_criterios(mr, medida_r, limite_r, min_aptos_r, lim17_r, destoa_r)
+        nc = fa.astype(int) + f17.astype(int) + fm.astype(int)
+        marc = nc >= min_crit_r
+        grupos = {"Todas as seções com log": pd.Series(True, index=mr.index),
+                  f"Marcadas (≥ {min_crit_r} critério{'s' if min_crit_r > 1 else ''})": marc,
+                  "Não marcadas": ~marc,
+                  "🔻 Abstenção baixa": fa, "⏰ Voto após 17h": f17, "🖐️ Liberação manual": fm,
+                  "Cumprem exatamente 1": nc == 1, "Cumprem exatamente 2": nc == 2, "Cumprem os 3": nc == 3}
+        grupos = {k_: v_ for k_, v_ in grupos.items() if int(v_.sum()) > 0}
+        res_r = resumo_cruzamento(mr, grupos).set_index("grupo")
+        nome_m = f"Marcadas (≥ {min_crit_r} critério{'s' if min_crit_r > 1 else ''})"
+
+        # --- resposta em linguagem comum
+        if nome_m in res_r.index and "Não marcadas" in res_r.index:
+            a_, b_ = res_r.loc[nome_m], res_r.loc["Não marcadas"]
+            dif = a_["z_medio"]
+            distinto = abs(dif) > a_["ic"] if not np.isnan(a_["ic"]) else False
+            onde = "Brasil" if local_r == "Brasil" else local_r
+            st.markdown(
+                f"Das **{_pt(len(mr))}** seções com log ({onde}), **{_pt(a_['secoes'])}** "
+                f"({_pt(a_['secoes'] / len(mr) * 100, 1)}%) foram marcadas como de risco. "
+                f"Nelas, o {quem_r} foi de **{_pt(a_['pct1'] * 100, 1)}%** para **{_pt(a_['pct2'] * 100, 1)}%** dos "
+                f"votos válidos ({_sp(a_['variacao_pp'])} p.p.); nas demais, de {_pt(b_['pct1'] * 100, 1)}% para "
+                f"{_pt(b_['pct2'] * 100, 1)}% ({_sp(b_['variacao_pp'])} p.p.).")
+            sinal = "acima" if a_["desvio_pp"] >= 0 else "abaixo"
+            st.markdown(
+                f"Descontando o que o município inteiro fez, nas marcadas o {quem_r} ficou "
+                f"**{_pt(abs(a_['desvio_pp']), 2)} p.p. {sinal} do esperado** "
+                f"({_pt(abs(a_['votos_vs_esperado']))} votos {sinal}). "
+                + (("Isso é estatisticamente distinguível do acaso, mas a diferença é **pequena** "
+                    "(menos de 0,25 p.p.): com tantas seções, até desvios mínimos aparecem como significativos."
+                    if abs(a_["desvio_pp"]) < 0.25 else "Isso é **distinguível do acaso** e de tamanho relevante.")
+                   if distinto else "Isso **não se distingue do acaso** (o intervalo inclui zero)."))
+
+        # --- tabela
+        st.markdown("**Desempenho por grupo de seções**")
+        tab_r = res_r.reset_index().rename(columns={
+            "grupo": "Grupo", "secoes": "Seções", "pct1": f"{quem_r} % 1º turno", "pct2": f"{quem_r} % 2º turno",
+            "variacao_pp": "Variação (p.p.)", "desvio_pp": "Acima/abaixo do esperado (p.p.)",
+            "votos_vs_esperado": "Votos acima/abaixo do esperado", "z_medio": "z médio", "ic": "± (95%)",
+            "pct_melhora": "% com melhora forte (z ≥ 3)", "pct_piora": "% com piora forte (z ≤ −3)"})
+        st.dataframe(tab_r, hide_index=True, width="stretch", column_config={
+            f"{quem_r} % 1º turno": st.column_config.NumberColumn(format="percent"),
+            f"{quem_r} % 2º turno": st.column_config.NumberColumn(format="percent"),
+            "Variação (p.p.)": st.column_config.NumberColumn(format="%+.2f"),
+            "Acima/abaixo do esperado (p.p.)": st.column_config.NumberColumn(format="%+.2f"),
+            "Votos acima/abaixo do esperado": st.column_config.NumberColumn(format="%+d"),
+            "z médio": st.column_config.NumberColumn(format="%+.2f"),
+            "± (95%)": st.column_config.NumberColumn(format="%.2f"),
+            "% com melhora forte (z ≥ 3)": st.column_config.NumberColumn(format="percent"),
+            "% com piora forte (z ≤ −3)": st.column_config.NumberColumn(format="percent")})
+
+        # --- gráfico de pontos com intervalo
+        g_plot = res_r.drop(index=["Todas as seções com log"], errors="ignore").iloc[::-1]
+        fig = go.Figure(go.Scatter(
+            x=g_plot["z_medio"], y=g_plot.index, mode="markers",
+            error_x=dict(type="data", array=g_plot["ic"].fillna(0), color="#b8c0cc"),
+            marker=dict(size=11, color=[COR_ALTA if z_ > 0 else COR_BAIXA for z_ in g_plot["z_medio"]]),
+            customdata=np.stack([g_plot["secoes"], g_plot["desvio_pp"]], axis=1),
+            hovertemplate="%{y}<br>z médio %{x:+.2f}<br>%{customdata[0]:,} seções<br>"
+                          "%{customdata[1]:+.2f} p.p. vs. esperado<extra></extra>"))
+        fig.add_vline(x=0, line_color="black")
+        fig.update_layout(title=f"{quem_r}: quanto acima (+) ou abaixo (−) do município, por grupo (z médio ± 95%)",
+                          xaxis_title="← pior que o município · z médio do desvio · melhor que o município →",
+                          height=max(300, 55 * len(g_plot) + 120), margin=dict(l=10, r=10, t=50, b=10))
+        st.plotly_chart(fig, width="stretch")
+
+        # --- lista: seções marcadas com maior melhora
+        st.markdown(f"**Seções marcadas em que o {quem_r} mais mudou em relação ao município**")
+        k = st.columns(3)
+        sentido_r = k[0].radio("Mostrar", ["Melhorou mais", "Piorou mais", "Os dois"], horizontal=True,
+                               key="risco_sentido")
+        zmin_r = k[1].number_input("|z| mínimo", 0.0, 10.0, 3.0, 0.5, key="risco_zmin")
+        min_vot_r = k[2].number_input("Mín. |votos × esperado|", 0, 500, 20, 5, key="risco_minvot")
+        sel_r = mr[marc & (mr["z_desvio"].abs() >= zmin_r) & (mr["votos_vs_esperado"].abs() >= min_vot_r)]
+        if sentido_r == "Melhorou mais":
+            sel_r = sel_r[sel_r["z_desvio"] > 0].sort_values("z_desvio", ascending=False)
+        elif sentido_r == "Piorou mais":
+            sel_r = sel_r[sel_r["z_desvio"] < 0].sort_values("z_desvio")
+        else:
+            sel_r = sel_r.reindex(sel_r["z_desvio"].abs().sort_values(ascending=False).index)
+        if len(sel_r):
+            txt = pd.concat([fa[sel_r.index].map({True: "abstenção baixa", False: ""}),
+                             f17[sel_r.index].map({True: "voto após 17h", False: ""}),
+                             fm[sel_r.index].map({True: "liberação manual", False: ""})], axis=1)
+            sel_r = sel_r.assign(criterios=txt.apply(lambda r: " · ".join(x for x in r if x), axis=1))
+        st.write(f"**{len(sel_r):,}** seções marcadas com |z| ≥ {zmin_r:g} ({sentido_r.lower()}).".replace(",", "."))
+        cols_l = [c for c in ["uf", "municipio", "zona", "secao", "criterios", "z_desvio", "votos_vs_esperado",
+                              "pct1", "pct2", "taxa_abstencao", "pct_apos_17", "pct_manual_cadastrados", "z_manual",
+                              "nome_local"] if c in sel_r]
+        st.dataframe(sel_r[cols_l], hide_index=True, width="stretch", height=380, column_config={
+            "z_desvio": st.column_config.NumberColumn("z do desvio", format="%.2f"),
+            "votos_vs_esperado": st.column_config.NumberColumn("votos × esperado", format="%+.0f"),
+            "pct1": st.column_config.NumberColumn("% 1", format="percent"),
+            "pct2": st.column_config.NumberColumn("% 2", format="percent"),
+            "taxa_abstencao": st.column_config.NumberColumn("abstenção 1º turno", format="percent"),
+            "pct_apos_17": st.column_config.NumberColumn("% após 17h (1º)", format="percent"),
+            "pct_manual_cadastrados": st.column_config.NumberColumn("% liberação manual (1º)", format="percent"),
+            "z_manual": st.column_config.NumberColumn("z manual", format="%.2f")})
+        st.download_button("⬇️ Baixar lista (CSV)", sel_r[cols_l].rename(columns={"pct1": "% 1", "pct2": "% 2"})
+                           .to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
+                           f"risco_x_{quem_r.lower()}.csv", "text/csv", key="dl_risco")
+
+        with st.expander("ℹ️ Como ler este cruzamento"):
+            st.markdown(
+                "- **Seção de risco** = cumpre algum dos três critérios do painel original, medidos no **1º turno**: "
+                "abstenção muito baixa, muito voto depois das 17h, muita liberação manual pelo mesário de quem tem "
+                "digital cadastrada.\n"
+                "- **Acima/abaixo do esperado** compara cada seção com o que o município todo fez entre os turnos "
+                "(a \"onda\" local). Assim, melhoras gerais do candidato não contam como anomalia.\n"
+                "- **z médio** perto de zero = o grupo se comporta como o resto. Valores bem acima de zero, com o "
+                "intervalo (±) longe de zero, indicam que o candidato melhorou *além do município* nesse grupo.\n"
+                "- **Associação não é causa.** Seções marcadas têm perfil próprio (zona rural, pouco cadastro biométrico, "
+                "fila, idosos). Uma associação pode vir desse perfil, não de irregularidade, e o contrário também vale.\n"
+                "- Seções com abstenção muito baixa no 1º turno tendem a ter mais abstenção no 2º (regressão à média), o que "
+                "pode afetar a comparação. Veja também a abstenção do 2º turno antes de concluir.\n"
+                "- Os logs do 2º turno ainda não foram publicados; quando saírem, dá para medir se as mesmas seções "
+                "se repetem como de risco.")
