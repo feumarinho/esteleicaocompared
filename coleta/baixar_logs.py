@@ -8,11 +8,11 @@ por padrão, o script baixa SÓ os logs de dentro do zip (cerca de metade do
 tamanho), em várias conexões, com novas tentativas automáticas. Se cair ou for
 interrompido, rode de novo: ele continua de onde parou.
 
-    python baixar_logs.py --ufs AC
-    python baixar_logs.py --ufs CE BA
-    python baixar_logs.py --ufs BA --conexoes 4
-    python baixar_logs.py --ufs CE --completo
-    python baixar_logs.py --zip ~/Downloads/bu_imgbu_logjez_rdv_vscmr_2026_1t_CE.zip
+    python coleta/baixar_logs.py --ufs AC
+    python coleta/baixar_logs.py --ufs CE BA
+    python coleta/baixar_logs.py --ufs BA --conexoes 4
+    python coleta/baixar_logs.py --ufs CE --completo
+    python coleta/baixar_logs.py --zip ~/Downloads/bu_imgbu_logjez_rdv_vscmr_2026_1t_CE.zip
 
 --conexoes   número de downloads simultâneos (padrão 8; reduza se der muitos erros)
 --completo   baixa o zip inteiro em vez de só os logs (retoma sozinho se cair)
@@ -36,14 +36,16 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from download_tse import SemDownloadParcial, baixar_completo, baixar_so_logs
-from logs_urna import ABERTURA, EXT_LOG, estimar_fuso, metricas, processar_logjez
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # raiz do projeto: permite `from analise...`
+from analise.logs_urna import ABERTURA, EXT_LOG, estimar_fuso, metricas, processar_logjez  # noqa: E402
+from download_tse import SemDownloadParcial, baixar_completo, baixar_so_logs  # noqa: E402
 
 URL = ("https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{ano}/arqurnatot/"
        "bu_imgbu_logjez_rdv_vscmr_{ano}_{turno}t_{uf}.zip")
 UFS = ["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA",
        "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO", "ZZ"]
-PASTA = Path(__file__).parent / "dados"
+PASTA = Path(__file__).resolve().parent.parent / "dados"
 
 
 # ------------------------------------------------------------------ leitura do zip
