@@ -16,6 +16,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import pickle
 import struct
 import sys
 import threading
@@ -43,6 +44,7 @@ URL = ("https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{ano}/arqurnato
 ORDEM = ["AC", "RR", "AP", "TO", "RO", "SE", "DF", "RN", "MS", "MT", "AL", "AM", "PI", "ES", "PB", "GO", "MA", "SC",
          "PA", "PE", "CE", "RS", "PR", "BA", "RJ", "MG", "SP"]
 SUFIXOS = {"-bu.dat": "bu", "-rdv.dat": "rdv", "-log.jez": "log"}
+BLOCO = 4000               # seções por ponto de retomada
 FOLGA_BLOCO = 32 * 1024     # junta arquivos vizinhos se o "vão" entre eles for menor que isso
 _local = threading.local()
 
@@ -215,20 +217,46 @@ def processar_uf(uf: str, ano: int, turno: int, processos: int, limite: int | No
     if limite:
         itens = itens[:limite]
     print(f"  {uf}: zip de {tamanho / 1e6:,.0f} MB, {len(itens):,} seções" + (f" ({sem} sem os 3 arquivos)" if sem else ""))
-    lotes = [(url, tamanho, itens[i:i + lote], turno, DIAS_ELEICAO[turno]) for i in range(0, len(itens), lote)]
     linhas, por_secao, baixados, feitos = [], defaultdict(list), 0, 0
-    with ProcessPoolExecutor(max_workers=processos) as ex:
-        futuros = [ex.submit(_lote, a) for a in lotes]
-        for f in as_completed(futuros):
-            for linha, r, n_bytes in f.result():
-                linhas.append(linha)
-                baixados += n_bytes
-                if r is not None:
-                    por_secao[r["chave"]].append(r)
-                feitos += 1
-            dt = max(time.time() - t0, 1e-6)
-            print(f"\r    {feitos:,}/{len(itens):,} seções  ({baixados / dt / 1e6:,.1f} MB/s, {feitos / dt:,.0f} seções/s)   ",
-                  end="", flush=True)
+    # UFs grandes (SP, MG...) levam dezenas de minutos: grava um ponto de retomada a cada BLOCO seções, para que um
+    # reinício da máquina não perca o trabalho (os pontos de retomada são apagados quando a UF termina)
+    for ini in range(0, len(itens), BLOCO):
+        bloco = itens[ini:ini + BLOCO]
+        ck = PASTA / f"parcial_{ano}_t{turno}_{uf}_{ini // BLOCO:04d}{'_TESTE' if limite else ''}.pkl"
+        if ck.exists():
+            try:
+                with open(ck, "rb") as fh:
+                    l_ck, s_ck = pickle.load(fh)
+                linhas += l_ck
+                for k, v in s_ck.items():
+                    por_secao[k] += v
+                feitos += len(bloco)
+                print(f"\r    {feitos:,}/{len(itens):,} seções (retomado de {ck.name})      ", end="", flush=True)
+                continue
+            except Exception:
+                ck.unlink()
+        l_b, s_b = [], defaultdict(list)
+        lotes = [(url, tamanho, bloco[i:i + lote], turno, DIAS_ELEICAO[turno]) for i in range(0, len(bloco), lote)]
+        with ProcessPoolExecutor(max_workers=processos) as ex:
+            futuros = [ex.submit(_lote, a) for a in lotes]
+            for f in as_completed(futuros):
+                for linha, r, n_bytes in f.result():
+                    l_b.append(linha)
+                    baixados += n_bytes
+                    if r is not None:
+                        s_b[r["chave"]].append(r)
+                    feitos += 1
+                dt = max(time.time() - t0, 1e-6)
+                print(f"\r    {feitos:,}/{len(itens):,} seções  ({baixados / dt / 1e6:,.1f} MB/s, {feitos / dt:,.0f} seções/s)   ",
+                      end="", flush=True)
+        if not any("erro" in x for x in l_b):    # bloco com falha de rede não vira ponto de retomada
+            tmp = ck.with_suffix(".tmp")
+            with open(tmp, "wb") as fh:
+                pickle.dump((l_b, dict(s_b)), fh)
+            tmp.replace(ck)
+        linhas += l_b
+        for k, v in s_b.items():
+            por_secao[k] += v
     print()
     integ = pd.DataFrame(linhas)
     n_err = int(integ["erro"].notna().sum()) if "erro" in integ else 0
@@ -242,6 +270,9 @@ def processar_uf(uf: str, ano: int, turno: int, processos: int, limite: int | No
     if not logs.empty:
         logs.to_parquet(PASTA / f"logs_{ano}_t{turno}_{uf}{suf}.parquet", index=False, compression="zstd")
     ok = lambda c: f"{integ[c].mean() * 100:.2f}%" if c in integ else "—"
+    if not limite and n_err == 0:
+        for ck in PASTA.glob(f"parcial_{ano}_t{turno}_{uf}_*.pkl"):
+            ck.unlink()
     print(f"    {n_err} com erro | BU=RDV em {ok('chk_bu_rdv')} | BU soma=comparecimento em {ok('chk_bu_comp')} | "
           f"log=BU em {ok('chk_log_bu')} | {time.time() - t0:,.0f} s")
     for e in integ["erro"].dropna().unique()[:3] if "erro" in integ else []:
