@@ -13,7 +13,7 @@ from app.comum import (CRITERIOS, PASTA, TODOS, arquivos_logs, carregar, com_log
 def montar_contexto():
     # ---------------------------------------------------------------- dados
     arquivos = sorted(PASTA.glob("secoes_*.parquet"), reverse=True)
-    arquivos.sort(key=lambda a: 0 if arquivos_logs(a) else 1)   # abre no turno que tem logs (todas as abas funcionam)
+    arquivos.sort(key=lambda a: -len(arquivos_logs(a)))   # abre no turno com mais logs processados (todas as abas funcionam)
     if not arquivos:
         st.error("Nenhum dado encontrado em `dados/`. Os dados processados vêm no repositório: atualize-o (`git pull`) "
                  "ou, para gerar do zero, rode `python coleta/baixar_dados.py`.")
@@ -129,7 +129,6 @@ def montar_contexto():
 
     nivel = ("Brasil" if uf == TODOS else uf if mun == TODOS else
              f"{df['municipio'].iloc[0]} / {uf}" + (f" · Zona {zona}" if zona != TODOS else ""))
-    st.title(nivel)
     r = resumo(df).iloc[0]
     dl = com_log(df)
     if uf == TODOS:

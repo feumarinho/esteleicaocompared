@@ -60,9 +60,13 @@ def _existe(nome: str) -> bool:
         return False
 
 
+COM_CABECALHO = ("resultado.", "risco.")   # indicadores do nível atual só onde fazem sentido
+
+
 def _pagina(ctx, nome: str, titulo: str, icone: str) -> st.Page:
     def executar():
-        cabecalho.render(ctx)
+        if nome.startswith(COM_CABECALHO):
+            cabecalho.render(ctx)
         importlib.import_module(f"app.paginas.{nome}").render(ctx)
     executar.__name__ = nome.replace(".", "_")
     return st.Page(executar, title=titulo, icon=icone, url_path=nome.replace(".", "-"))
@@ -79,4 +83,4 @@ grupos = {g: [(m, t, i) for m, t, i in itens if _existe(m)] for g, itens in {**O
 ordem = ["Integridade das urnas", "1º turno por seção", "Critérios dos logs", "Comparação entre turnos",
          "Contexto histórico"]
 paginas = {g: [_pagina(ctx, *x) for x in grupos[g]] for g in ordem if grupos.get(g)}
-st.navigation(paginas).run()
+st.navigation(paginas, expanded=True).run()

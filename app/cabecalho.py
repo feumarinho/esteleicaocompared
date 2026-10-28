@@ -7,6 +7,7 @@ from app.comum import (com_log, hora, pct, resumo)
 
 
 def render(ctx):
+    st.title(ctx.nivel)
     NOME_CRUZ = ctx.NOME_CRUZ
     df = ctx.df
     limite = ctx.limite
