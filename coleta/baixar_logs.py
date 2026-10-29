@@ -60,11 +60,11 @@ def iterar_logjez(zf: zipfile.ZipFile, prefixo: str = ""):
                 yield from iterar_logjez(interno, prefixo + info.filename + "/")
 
 
-def _tarefa(lote):
-    return [processar_logjez(nome, dados) for nome, dados in lote]
+def _tarefa(lote, dia=None):
+    return [processar_logjez(nome, dados, dia) for nome, dados in lote]
 
 
-def _em_paralelo(itens, processos: int, tam_lote: int = 32):
+def _em_paralelo(itens, processos: int, tam_lote: int = 32, dia: str | None = None):
     """Processa em paralelo com memória limitada (no máximo ~4 lotes por processo em voo)."""
     def lotes():
         lote = []
@@ -78,12 +78,12 @@ def _em_paralelo(itens, processos: int, tam_lote: int = 32):
 
     if processos <= 1:
         for lote in lotes():
-            yield from _tarefa(lote)
+            yield from _tarefa(lote, dia)
         return
     with ProcessPoolExecutor(max_workers=processos) as ex:
         pendentes = set()
         for lote in lotes():
-            pendentes.add(ex.submit(_tarefa, lote))
+            pendentes.add(ex.submit(_tarefa, lote, dia))
             if len(pendentes) >= processos * 4:
                 prontos, pendentes = wait(pendentes, return_when=FIRST_COMPLETED)
                 for f in prontos:
@@ -92,7 +92,7 @@ def _em_paralelo(itens, processos: int, tam_lote: int = 32):
             yield from f.result()
 
 
-def processar_zip(caminho: Path, uf: str, processos: int) -> pd.DataFrame:
+def processar_zip(caminho: Path, uf: str, processos: int, dia: str | None = None) -> pd.DataFrame:
     por_secao = defaultdict(list)
     erros = []
     with zipfile.ZipFile(caminho) as zf:
@@ -101,7 +101,7 @@ def processar_zip(caminho: Path, uf: str, processos: int) -> pd.DataFrame:
         total = n_log if not n_zip else None
         print(f"  {n_log:,} logs" + (f" e {n_zip:,} zips internos" if n_zip else "") + " a processar")
         t0 = time.time()
-        for i, r in enumerate(_em_paralelo(iterar_logjez(zf), processos), 1):
+        for i, r in enumerate(_em_paralelo(iterar_logjez(zf), processos, dia=dia), 1):
             if "erro" in r:
                 erros.append((r["nome"], r["erro"]))
             else:
@@ -137,6 +137,7 @@ def main():
                    help="Baixar o zip inteiro do TSE (padrão: baixar só os logs de dentro dele)")
     p.add_argument("--conexoes", type=int, default=8, help="Downloads simultâneos no modo só-logs")
     p.add_argument("--url", help=argparse.SUPPRESS)  # para testes: modelo de URL alternativo
+    p.add_argument("--dia", help="dia da eleição dd/mm/aaaa (necessário em logs cumulativos, como o do 2º turno)")
     p.add_argument("--refazer", action="store_true", help="Reprocessar UFs já processadas")
     p.add_argument("--processos", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     a = p.parse_args()
@@ -185,7 +186,7 @@ def main():
             print(f"  ! falha no download: {e}")
             print("    Rode o mesmo comando de novo: ele continua de onde parou.")
             continue
-        df = processar_zip(caminho, uf, a.processos)
+        df = processar_zip(caminho, uf, a.processos, a.dia)
         if df.empty:
             print("  ! nenhum log válido encontrado")
             continue
